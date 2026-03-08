@@ -1,15 +1,34 @@
 # DioTest Agents (Community Edition)
 
-DioTest is a Manifest V3 Chrome extension with two modes:
+DioTest is a local-first AI testing assistant currently delivered as a Manifest V3 browser extension for GitHub PR/commit review workflows.
 
-- PR Review Mode: GitHub pull request risk + test planning
-- UI Review Recorder Mode: session capture to manual test cases
+## Current MVP (Browser Extension)
+
+What works today:
+
+- PR/commit context extraction from GitHub pages.
+- AI-first test planning with deterministic + AI blended risk scoring.
+- Structured outputs for risk areas, test plan, and manual test cases.
+- Debug inspector with context coverage and risk-formula breakdown.
+- Safe-mode and validated settings persisted in `chrome.storage.local`.
+
+## Why DioTest
+
+- Change-aware PR testing: recommendations are anchored to changed files and diffs.
+- Explainable risk reasoning: deterministic scoring is blended with model output and exposed in Debug.
+- Local-first trust posture: Community Edition runs extension-side with user-controlled keys/settings.
+
+## Product Direction
+
+- **Now:** Browser extension MVP for PR/commit testing intelligence.
+- **Next:** IDE-focused Testing Agent workspace (code, risk, tests, and review context in one flow).
+- **Later:** Optional cloud testing functions (hosted analysis jobs, org policies, and integration connectors).
 
 ## Stack
 
-- Vite + React + TypeScript
-- Tailwind/shadcn-style component structure for side panel UI
-- Vitest for tests
+- React + TypeScript
+- MV3 extension runtime (content script + service worker + side panel)
+- Vitest + ESLint + TypeScript checks
 
 ## Scripts
 
@@ -17,8 +36,9 @@ DioTest is a Manifest V3 Chrome extension with two modes:
 - `pnpm build` (or `npm run build`)
 - `pnpm test` (or `npm run test`)
 - `pnpm lint` (or `npm run lint`)
+- `pnpm typecheck` (or `npm run typecheck`)
 
-## Locked v0.1 Constraints
+## v0.1 Constraints
 
 - Editable settings with hard ranges and validation
 - Atomic settings save in `chrome.storage.local`
@@ -28,21 +48,24 @@ DioTest is a Manifest V3 Chrome extension with two modes:
   - `diotest_pr_<repo>_<pr>.json|md`
   - `diotest_ui_session_<domain>_<timestamp>.json|md`
 
-## v0.1 Non-goals
+## v0.1 Non-Goals
 
-- No repo-wide analysis
-- No CI integration
+- No repo-wide scan
+- No CI integration execution
 - No Jira/Trello/Sheets integration
-- No cloud sync backend
+- No cloud storage/sync backend
 - No auto test execution
 - No autonomous UI crawling
 
-## Current UI Baseline
+## Learn More
 
-Baseline UI screenshots for this push are tracked in `docs/screenshots/` with these names:
+- [Product Strategy](docs/PRODUCT_STRATEGY.md)
+- [Market Fit](docs/MARKET_FIT.md)
+- [MVP Spec](docs/MVP_SPEC.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Non-Goals](docs/NON_GOALS.md)
+- [Contributing](docs/CONTRIBUTING.md)
 
-- `review-risk-panel.png`
-- `testplan-debug-panel.png`
-- `settings-panel.png`
+## UI Baseline
 
-Note: the screen recording video is intentionally not committed to git and should be attached to PR/release notes externally.
+Current baseline screenshot notes are tracked in [docs/screenshots/README.md](docs/screenshots/README.md).
