@@ -63,6 +63,12 @@ export interface AnalyzeDebug {
   warnings: string[];
   context_summary: string;
   raw_context: ExtractionContext;
+  risk_formula?: {
+    deterministic_score: number;
+    ai_score: number;
+    final_score: number;
+    drivers: string[];
+  };
   request_inspector: {
     mode: AnalysisMode;
     page_type: ExtractionContext["pageType"];

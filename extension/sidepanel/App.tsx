@@ -179,16 +179,17 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div>
+        <div className="brand-wrap">
           <h1 className="app-title">DioTest</h1>
           <p className="app-subtitle">AI-first analysis for PR/commit context</p>
         </div>
+        <span className="brand-badge">Community</span>
       </header>
 
       <nav className="tab-row" aria-label="DioTest sections">
-        <Button variant={tab === "review" ? "default" : "secondary"} onClick={() => setTab("review")}>Review</Button>
-        <Button variant={tab === "sessions" ? "default" : "secondary"} onClick={() => setTab("sessions")}>Sessions</Button>
-        <Button variant={tab === "settings" ? "default" : "secondary"} onClick={() => setTab("settings")}>Settings</Button>
+        <Button className="tab-pill" variant={tab === "review" ? "default" : "secondary"} onClick={() => setTab("review")}>Review</Button>
+        <Button className="tab-pill" variant={tab === "sessions" ? "default" : "secondary"} onClick={() => setTab("sessions")}>Sessions</Button>
+        <Button className="tab-pill" variant={tab === "settings" ? "default" : "secondary"} onClick={() => setTab("settings")}>Settings</Button>
       </nav>
 
       <section className="content-scroll">
@@ -227,8 +228,8 @@ export default function App() {
                   <p className="metric-line">Score: {analysis.risk_score.toFixed(1)} / 10</p>
                   <ul className="clean-list">
                     {analysis.risk_areas.map((risk, idx) => (
-                      <li key={`${risk.area}-${idx}`}>
-                        <strong>{risk.severity.toUpperCase()}</strong> - {risk.area}
+                      <li key={`${risk.area}-${idx}`} className="risk-item">
+                        <span className={`severity-badge severity-${risk.severity}`}>{risk.severity.toUpperCase()}</span> {risk.area}
                         <div className="muted-wrap">{risk.evidence_files.join(", ")}</div>
                       </li>
                     ))}
@@ -237,12 +238,20 @@ export default function App() {
 
                 <article className="panel-card">
                   <h3>Test Plan</h3>
-                  <h4>Unit</h4>
-                  <ul className="clean-list">{analysis.test_plan.unit.map((t, i) => <li key={`u-${i}`}>{t.title}</li>)}</ul>
-                  <h4>Integration</h4>
-                  <ul className="clean-list">{analysis.test_plan.integration.map((t, i) => <li key={`i-${i}`}>{t.title}</li>)}</ul>
-                  <h4>E2E</h4>
-                  <ul className="clean-list">{analysis.test_plan.e2e.map((t, i) => <li key={`e-${i}`}>{t.title}</li>)}</ul>
+                  <div className="plan-grid">
+                    <section className="plan-group">
+                      <h4>Unit</h4>
+                      <ul className="clean-list">{analysis.test_plan.unit.map((t, i) => <li key={`u-${i}`}>{t.title}</li>)}</ul>
+                    </section>
+                    <section className="plan-group">
+                      <h4>Integration</h4>
+                      <ul className="clean-list">{analysis.test_plan.integration.map((t, i) => <li key={`i-${i}`}>{t.title}</li>)}</ul>
+                    </section>
+                    <section className="plan-group">
+                      <h4>E2E</h4>
+                      <ul className="clean-list">{analysis.test_plan.e2e.map((t, i) => <li key={`e-${i}`}>{t.title}</li>)}</ul>
+                    </section>
+                  </div>
                 </article>
 
                 <article className="panel-card">
@@ -290,6 +299,20 @@ export default function App() {
                   ) : null}
 
                   {debug?.warnings.length ? <div className="warning-banner">{debug.warnings.join(" | ")}</div> : null}
+
+                  {debug?.risk_formula ? (
+                    <div className="formula-card">
+                      <h4>Risk Formula</h4>
+                      <p className="muted-wrap">
+                        AI {debug.risk_formula.ai_score.toFixed(1)} · Deterministic {debug.risk_formula.deterministic_score.toFixed(1)} · Final {debug.risk_formula.final_score.toFixed(1)}
+                      </p>
+                      <ul className="clean-list">
+                        {debug.risk_formula.drivers.map((driver, index) => (
+                          <li key={`${driver}-${index}`}>{driver}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
 
                   {isDebugExpanded && debug ? (
                     <div className="debug-sections" ref={debugDetailsRef}>

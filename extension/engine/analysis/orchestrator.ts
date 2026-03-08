@@ -6,6 +6,7 @@ import type { SettingsLatest } from "../settings/types";
 import { generateStructured } from "../providers/openai";
 import { AI_ANALYSIS_SCHEMA, isValidAiAnalysisResult } from "./schema";
 import { summarizeContext } from "./summarize";
+import { blendRiskScores, computeDeterministicRiskScore } from "./risk";
 import type { AiAnalysisResultV1, AnalysisMode, AnalyzeResult, ExtractionContext } from "./types";
 
 export interface AnalyzeRequest {
@@ -103,6 +104,9 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
     aiPayload = repair.data;
   }
 
+  const deterministic = computeDeterministicRiskScore(workingContext, { coverage, trimmed });
+  const finalRiskScore = blendRiskScores(aiPayload.risk_score, deterministic.score);
+
   return {
     ok: true,
     result: {
@@ -113,13 +117,20 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
         analysis_mode: request.mode,
         coverage_level: coverage
       },
-      ...aiPayload
+      ...aiPayload,
+      risk_score: finalRiskScore
     },
     debug: {
       token_estimate: tokenEstimate,
       warnings,
       context_summary: summary,
       raw_context: workingContext,
+      risk_formula: {
+        deterministic_score: deterministic.score,
+        ai_score: aiPayload.risk_score,
+        final_score: finalRiskScore,
+        drivers: deterministic.drivers
+      },
       request_inspector: {
         mode: request.mode,
         page_type: workingContext.pageType,

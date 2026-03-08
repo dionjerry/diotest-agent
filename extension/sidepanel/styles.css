@@ -1,12 +1,12 @@
 :root {
   color-scheme: dark;
-  --bg: #0b1224;
-  --bg-soft: #111a33;
-  --card: #0f1a34;
-  --line: #2a3a59;
-  --text: #e2e8f0;
-  --muted: #9fb0cf;
-  --brand: #2f6fed;
+  --bg: #050505;
+  --bg-soft: #101010;
+  --card: #0f0f10;
+  --line: #2a2a2d;
+  --text: #f5f5f5;
+  --muted: #a3a3a8;
+  --brand: #ffffff;
   --warning: #ffb020;
 }
 
@@ -16,9 +16,12 @@ body,
   margin: 0;
   width: 100%;
   height: 100%;
-  background: radial-gradient(circle at top left, #142448 0%, var(--bg) 45%);
+  background:
+    radial-gradient(circle at 10% -10%, #1c1c1f 0%, transparent 30%),
+    radial-gradient(circle at 90% 0%, #151518 0%, transparent 24%),
+    linear-gradient(180deg, #070707 0%, #050505 100%);
   color: var(--text);
-  font-family: "Sora", "Manrope", ui-sans-serif, system-ui;
+  font-family: "Manrope", "Sora", ui-sans-serif, system-ui;
 }
 
 * {
@@ -31,8 +34,8 @@ body,
   min-height: 100vh;
   max-height: 100vh;
   overflow: hidden;
-  padding: 14px;
-  gap: 10px;
+  padding: 14px 14px 10px;
+  gap: 12px;
 }
 
 .app-header {
@@ -41,33 +44,59 @@ body,
   justify-content: space-between;
 }
 
+.brand-wrap {
+  display: grid;
+  gap: 4px;
+}
+
 .app-title {
   margin: 0;
-  font-size: 38px;
-  line-height: 1;
+  font-size: 34px;
+  line-height: 0.95;
   letter-spacing: -0.03em;
+  font-weight: 800;
 }
 
 .app-subtitle {
-  margin: 6px 0 0;
+  margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+}
+
+.brand-badge {
+  border: 1px solid #34343a;
+  background: #17171a;
+  color: #d4d4d8;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
 }
 
 .tab-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(13, 13, 15, 0.88);
+  backdrop-filter: blur(8px);
+}
+
+.tab-pill {
+  flex: 1 1 0;
+  min-width: 84px;
 }
 
 .dt-btn {
   border-radius: 10px;
-  padding: 9px 12px;
-  font-size: 14px;
+  padding: 8px 12px;
+  font-size: 13px;
   font-weight: 600;
-  border: 1px solid #334155;
+  border: 1px solid #35353a;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: all 0.16s ease;
 }
 
 .dt-btn:disabled {
@@ -76,17 +105,19 @@ body,
 }
 
 .dt-btn--default {
-  background: var(--brand);
-  color: #ffffff;
-  border-color: var(--brand);
+  background: #ffffff;
+  color: #0a0a0a;
+  border-color: #ffffff;
+  box-shadow: 0 8px 20px rgba(255, 255, 255, 0.14);
 }
 
 .dt-btn--default:hover:not(:disabled) {
-  filter: brightness(1.08);
+  transform: translateY(-1px);
+  filter: brightness(1.04);
 }
 
 .dt-btn--secondary {
-  background: #1a263e;
+  background: #17171a;
   color: var(--text);
 }
 
@@ -96,41 +127,41 @@ body,
 
 .dt-btn--ghost {
   background: transparent;
-  border-color: #3a4e75;
-  color: #c9d7ef;
+  border-color: #323239;
+  color: #d6d6da;
 }
 
 .dt-btn--ghost:hover:not(:disabled) {
-  background: rgba(58, 78, 117, 0.24);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .dt-input {
   margin-top: 4px;
   width: 100%;
   border-radius: 8px;
-  border: 1px solid #334155;
-  background: #0b1730;
-  color: #e2e8f0;
+  border: 1px solid #35353a;
+  background: #111113;
+  color: #f2f2f2;
   padding: 8px 10px;
   font-size: 13px;
 }
 
 .dt-input:focus,
 .model-select-wrap select:focus {
-  outline: 2px solid rgba(47, 111, 237, 0.45);
+  outline: 2px solid rgba(255, 255, 255, 0.35);
   outline-offset: 1px;
 }
 
 .dt-checkbox {
   width: 16px;
   height: 16px;
-  accent-color: #2f6fed;
+  accent-color: #ffffff;
   margin-top: 1px;
 }
 
 .content-scroll {
   overflow: auto;
-  padding-right: 4px;
+  padding-right: 6px;
 }
 
 .section-stack {
@@ -142,7 +173,7 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -173,7 +204,7 @@ body,
   width: 100%;
   border-radius: 10px;
   border: 1px solid var(--line);
-  background: #0b1730;
+  background: #111113;
   color: var(--text);
   padding: 7px 9px;
   font-size: 13px;
@@ -181,39 +212,46 @@ body,
 
 .status-chip-row {
   display: flex;
-  gap: 8px;
+  gap: 7px;
   flex-wrap: wrap;
 }
 
 .chip {
-  border: 1px solid var(--line);
-  background: var(--bg-soft);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(18, 18, 20, 0.88);
   border-radius: 999px;
-  padding: 4px 9px;
+  padding: 4px 10px;
   font-size: 12px;
+  font-weight: 600;
+  color: #e5e7eb;
 }
 
 .panel-card {
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, #0d1a36, #0b1730);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(16, 16, 18, 0.94), rgba(12, 12, 14, 0.94));
   border-radius: 14px;
-  padding: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  padding: 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 10px 28px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(8px);
 }
 
 .panel-card h3 {
-  margin: 0 0 8px;
-  font-size: 23px;
+  margin: 0 0 10px;
+  font-size: 20px;
 }
 
 .panel-card h4 {
-  margin: 10px 0 6px;
-  font-size: 16px;
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: #ececf0;
 }
 
 .metric-line {
-  margin: 0;
-  font-size: 31px;
+  margin: 0 0 8px;
+  font-size: 30px;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
@@ -229,9 +267,62 @@ body,
   overflow-wrap: anywhere;
 }
 
+.risk-item {
+  display: grid;
+  gap: 4px;
+}
+
+.severity-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  width: fit-content;
+}
+
+.severity-high {
+  color: #ffd4d4;
+  background: rgba(219, 62, 62, 0.24);
+  border: 1px solid rgba(219, 62, 62, 0.5);
+}
+
+.severity-medium {
+  color: #ffe6b0;
+  background: rgba(255, 176, 32, 0.2);
+  border: 1px solid rgba(255, 176, 32, 0.45);
+}
+
+.severity-low {
+  color: #c8f7dc;
+  background: rgba(47, 186, 101, 0.2);
+  border: 1px solid rgba(47, 186, 101, 0.45);
+}
+
 .muted-wrap {
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+
+.plan-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.plan-group {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(8, 8, 10, 0.65);
+  padding: 10px;
+}
+
+.formula-card {
+  margin-top: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 10, 12, 0.7);
+  border-radius: 10px;
+  padding: 10px;
 }
 
 .warning-banner {
@@ -284,4 +375,14 @@ body,
 
 .code-viewer.expanded {
   max-height: 420px;
+}
+
+@media (max-width: 420px) {
+  .app-title {
+    font-size: 30px;
+  }
+
+  .brand-badge {
+    display: none;
+  }
 }

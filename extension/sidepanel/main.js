@@ -29661,14 +29661,17 @@ function App() {
     setRecorder({ active: false });
   }
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("main", { className: "app-shell", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("header", { className: "app-header", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h1", { className: "app-title", children: "DioTest" }),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "app-subtitle", children: "AI-first analysis for PR/commit context" })
-    ] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("header", { className: "app-header", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "brand-wrap", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h1", { className: "app-title", children: "DioTest" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "app-subtitle", children: "AI-first analysis for PR/commit context" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "brand-badge", children: "Community" })
+    ] }),
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("nav", { className: "tab-row", "aria-label": "DioTest sections", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: tab === "review" ? "default" : "secondary", onClick: () => setTab("review"), children: "Review" }),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: tab === "sessions" ? "default" : "secondary", onClick: () => setTab("sessions"), children: "Sessions" }),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: tab === "settings" ? "default" : "secondary", onClick: () => setTab("settings"), children: "Settings" })
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { className: "tab-pill", variant: tab === "review" ? "default" : "secondary", onClick: () => setTab("review"), children: "Review" }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { className: "tab-pill", variant: tab === "sessions" ? "default" : "secondary", onClick: () => setTab("sessions"), children: "Sessions" }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { className: "tab-pill", variant: tab === "settings" ? "default" : "secondary", onClick: () => setTab("settings"), children: "Settings" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "content-scroll", children: [
       tab === "review" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "section-stack", children: [
@@ -29706,21 +29709,29 @@ function App() {
               analysis.risk_score.toFixed(1),
               " / 10"
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.risk_areas.map((risk, idx) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: risk.severity.toUpperCase() }),
-              " - ",
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.risk_areas.map((risk, idx) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { className: "risk-item", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: `severity-badge severity-${risk.severity}`, children: risk.severity.toUpperCase() }),
+              " ",
               risk.area,
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "muted-wrap", children: risk.evidence_files.join(", ") })
             ] }, `${risk.area}-${idx}`)) })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "Test Plan" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Unit" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.test_plan.unit.map((t, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t.title }, `u-${i}`)) }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Integration" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.test_plan.integration.map((t, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t.title }, `i-${i}`)) }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "E2E" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.test_plan.e2e.map((t, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t.title }, `e-${i}`)) })
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "plan-grid", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "plan-group", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Unit" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.test_plan.unit.map((t, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t.title }, `u-${i}`)) })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "plan-group", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Integration" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.test_plan.integration.map((t, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t.title }, `i-${i}`)) })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "plan-group", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "E2E" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.test_plan.e2e.map((t, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t.title }, `e-${i}`)) })
+              ] })
+            ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "Manual Cases" }),
@@ -29803,6 +29814,18 @@ function App() {
               ] })
             ] }) : null,
             debug?.warnings.length ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: debug.warnings.join(" | ") }) : null,
+            debug?.risk_formula ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "formula-card", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Risk Formula" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: "muted-wrap", children: [
+                "AI ",
+                debug.risk_formula.ai_score.toFixed(1),
+                " \xB7 Deterministic ",
+                debug.risk_formula.deterministic_score.toFixed(1),
+                " \xB7 Final ",
+                debug.risk_formula.final_score.toFixed(1)
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: debug.risk_formula.drivers.map((driver, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: driver }, `${driver}-${index}`)) })
+            ] }) : null,
             isDebugExpanded && debug ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-sections", ref: debugDetailsRef, children: [
               /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Prompt Preview" }),
