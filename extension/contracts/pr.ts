@@ -1,4 +1,4 @@
-import type { PrExtractResult } from "../../engine/pr/types";
+import type { PrExtractResult } from "../engine/pr/types";
 
 export type PrContractMessage =
   | { type: "pr.extract" }

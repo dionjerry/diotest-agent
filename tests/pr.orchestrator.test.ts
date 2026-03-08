@@ -10,6 +10,7 @@ describe("pr analyze orchestration", () => {
       extractPrContext: async () => ({
         ok: true,
         context: {
+          pageType: "pull_request",
           repo: "org/repo",
           prNumber: 12,
           title: "PR",

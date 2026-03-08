@@ -1,19 +1,20 @@
-import { ERROR_MESSAGES } from "../../engine/errors/codes";
-import { buildPrExportFilename, buildUiSessionExportFilename } from "../../engine/exports/naming";
-import { toSafeSettingsProfile } from "../../engine/exports/metadata";
-import { assertSettingsForExecution } from "../../engine/runtime/gating";
-import { DEFAULT_SETTINGS } from "../../engine/settings/defaults";
-import { loadSettings, saveSettingsAtomically } from "../../engine/settings/storage";
-import { autoSessionName } from "../../engine/ui/sessionNaming";
-import { clearRecorderState, persistRecorderState, restoreRecorderState } from "../../engine/worker/state";
-import { runPrAnalyze } from "../../engine/pr/orchestrator";
-import type { PrExtractResult } from "../../engine/pr/types";
+import { ERROR_MESSAGES } from "../engine/errors/codes";
+import { buildPrExportFilename, buildUiSessionExportFilename } from "../engine/exports/naming";
+import { toSafeSettingsProfile } from "../engine/exports/metadata";
+import { assertSettingsForExecution } from "../engine/runtime/gating";
+import { DEFAULT_SETTINGS } from "../engine/settings/defaults";
+import { loadSettings, saveSettingsAtomically } from "../engine/settings/storage";
+import { autoSessionName } from "../engine/ui/sessionNaming";
+import { clearRecorderState, persistRecorderState, restoreRecorderState } from "../engine/worker/state";
+import { runAiAnalyze } from "../engine/analysis/orchestrator";
+import type { AnalysisMode, ExtractionContext } from "../engine/analysis/types";
+import type { PrExtractResult } from "../engine/pr/types";
 
 type Message =
   | { type: "settings.load" }
   | { type: "settings.save"; payload: unknown }
-  | { type: "analysis.run"; payload: { mode: "pr" | "ui"; context?: Record<string, unknown> } }
-  | { type: "pr.analyze"; payload: { tabId: number } }
+  | { type: "ui.openPanel"; payload: { tabId: number; intent: "review" | "review_analyze" | "settings" } }
+  | { type: "analysis.run"; payload: { tabId: number; mode: AnalysisMode; includeDeepScan: boolean } }
   | { type: "pr.pageState"; payload: { onPr: boolean; url: string } }
   | { type: "recorder.start"; payload: { tabId: number; domain: string; flow: string } }
   | { type: "recorder.stop" }
@@ -23,6 +24,20 @@ type Message =
 function setBadge(text: string, color = "#d0021b"): void {
   void chrome.action.setBadgeText({ text });
   void chrome.action.setBadgeBackgroundColor({ color });
+}
+
+function toExtractionContext(pr: PrExtractResult): ExtractionContext | null {
+  if (!pr.ok) return null;
+  return {
+    pageType: pr.context.pageType,
+    repo: pr.context.repo,
+    prNumber: pr.context.prNumber,
+    commitSha: pr.context.commitSha,
+    title: pr.context.title,
+    description: pr.context.description,
+    url: pr.context.url,
+    files: (pr.context.changedFiles ?? []).map((path) => ({ path, source: "dom" as const }))
+  };
 }
 
 async function requestPrExtract(tabId: number): Promise<PrExtractResult> {
@@ -42,12 +57,18 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (!existing["diotest.settings"]) {
     await chrome.storage.local.set({ "diotest.settings": DEFAULT_SETTINGS });
   }
+  if (chrome.sidePanel?.setPanelBehavior) {
+    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  }
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   const restored = await restoreRecorderState();
   if (restored.state?.active) {
     setBadge("REC");
+  }
+  if (chrome.sidePanel?.setPanelBehavior) {
+    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   }
 });
 
@@ -64,21 +85,38 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
         sendResponse(result.valid ? { ok: true, settings: result.normalizedSettings } : { ok: false, errors: result.errors });
         return;
       }
-      case "analysis.run": {
-        const settings = await loadSettings();
-        const gate = assertSettingsForExecution(settings);
-        if (!gate.ok || !gate.settings) {
-          sendResponse({ ok: false, error: ERROR_MESSAGES.SETTINGS_VALIDATION_FAILED });
+      case "ui.openPanel": {
+        await chrome.storage.local.set({
+          "diotest.ui.intent": message.payload.intent,
+          "diotest.ui.sourceTabId": message.payload.tabId
+        });
+        if (chrome.sidePanel?.open) {
+          await chrome.sidePanel.open({ tabId: message.payload.tabId });
+          sendResponse({ ok: true, mode: "sidepanel" });
           return;
         }
-        sendResponse({
-          ok: true,
-          meta: {
-            engine_version: "0.1.0",
-            settings_profile: toSafeSettingsProfile(gate.settings)
-          },
-          note: `${message.payload.mode.toUpperCase()} analysis accepted`
+        sendResponse({ ok: false, mode: "sidepanel-unavailable", error: "Side Panel API is unavailable in this browser build." });
+        return;
+      }
+      case "analysis.run": {
+        const settings = await loadSettings();
+        const result = await runAiAnalyze({
+          rawSettings: settings,
+          mode: message.payload.mode,
+          includeDeepScan: message.payload.includeDeepScan,
+          extractContext: async () => {
+            const extracted = await requestPrExtract(message.payload.tabId);
+            if (!extracted.ok) {
+              return { ok: false as const, error: extracted.error };
+            }
+            const normalized = toExtractionContext(extracted);
+            if (!normalized) {
+              return { ok: false as const, error: ERROR_MESSAGES.PR_EXTRACTION_FAILED };
+            }
+            return { ok: true as const, context: normalized };
+          }
         });
+        sendResponse(result);
         return;
       }
       case "pr.pageState": {
@@ -89,16 +127,6 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
           setBadge(recorder.state?.active ? "REC" : "", recorder.state?.active ? "#d0021b" : "#2563eb");
         }
         sendResponse({ ok: true });
-        return;
-      }
-      case "pr.analyze": {
-        const settings = await loadSettings();
-        const result = await runPrAnalyze({
-          rawSettings: settings,
-          tabId: message.payload.tabId,
-          extractPrContext: requestPrExtract
-        });
-        sendResponse(result);
         return;
       }
       case "recorder.start": {
