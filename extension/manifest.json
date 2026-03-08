@@ -3,7 +3,7 @@
   "name": "DioTest Agents",
   "version": "0.1.0",
   "description": "PR intelligence + UI session intelligence for testing.",
-  "permissions": ["storage", "activeTab", "scripting", "tabs"],
+  "permissions": ["storage", "activeTab", "scripting", "tabs", "sidePanel"],
   "host_permissions": ["https://github.com/*", "<all_urls>"],
   "background": {
     "service_worker": "background/index.js",
@@ -11,13 +11,14 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://github.com/*/*/pull/*"],
+      "matches": ["https://github.com/*/*/pull/*", "https://github.com/*/*/commit/*"],
       "js": ["content/pr-observer.js"],
       "run_at": "document_idle"
     }
   ],
   "action": {
-    "default_title": "DioTest Agents"
+    "default_title": "DioTest Agents",
+    "default_popup": "popup/index.html"
   },
   "side_panel": {
     "default_path": "sidepanel/index.html"

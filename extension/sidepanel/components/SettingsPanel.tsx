@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { DEFAULT_SETTINGS } from "../../../engine/settings/defaults";
-import { SETTING_RANGES } from "../../../engine/settings/ranges";
-import type { SettingsLatest, SettingsValidationResult } from "../../../engine/settings/types";
-import { validateSettings } from "../../../engine/settings/validation";
+import { DEFAULT_SETTINGS } from "../../engine/settings/defaults";
+import { SETTING_RANGES } from "../../engine/settings/ranges";
+import type { SettingsLatest, SettingsValidationResult } from "../../engine/settings/types";
+import { validateSettings } from "../../engine/settings/validation";
 import { sendMessage } from "../lib/messages";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -35,7 +35,7 @@ export function SettingsPanel({ settings, onSaved }: Props) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const validation = useMemo(() => validateSettings(draft), [draft]);
 
-  function set(path: string, value: number | boolean) {
+  function set(path: string, value: number | boolean | string) {
     const next = structuredClone(draft);
     const [a, b] = path.split(".");
     (next as any)[a][b] = value;
@@ -69,6 +69,43 @@ export function SettingsPanel({ settings, onSaved }: Props) {
     <div>
       <h3>Settings</h3>
       <p>DioTest accesses only the active tab when you explicitly start UI recording.</p>
+
+      <h4>AI</h4>
+      <label style={{ display: "block", marginBottom: 10 }}>
+        OpenAI API key
+        <Input
+          type="password"
+          value={draft.auth.openaiApiKey}
+          onChange={(e) => set("auth.openaiApiKey", e.target.value)}
+          placeholder="sk-..."
+        />
+      </label>
+      <label style={{ display: "block", marginBottom: 10 }}>
+        OpenAI model
+        <select
+          className="dt-input"
+          value={draft.analysis.model}
+          onChange={(e) => set("analysis.model", e.target.value)}
+        >
+          <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+          <option value="gpt-4.1">gpt-4.1</option>
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o</option>
+        </select>
+      </label>
+      <label style={{ display: "block", marginBottom: 10 }}>
+        GitHub token (optional, deep scan)
+        <Input
+          type="password"
+          value={draft.auth.githubToken}
+          onChange={(e) => set("auth.githubToken", e.target.value)}
+          placeholder="ghp_..."
+        />
+      </label>
+      <label style={{ display: "block", marginBottom: 10 }}>
+        <Checkbox checked={draft.analysis.deepScanDefault} onChange={(e) => set("analysis.deepScanDefault", e.target.checked)} /> Enable deep scan by default
+      </label>
+
       <h4>PR Mode</h4>
       <NumberField
         label="Max files"
@@ -94,6 +131,7 @@ export function SettingsPanel({ settings, onSaved }: Props) {
       <label style={{ display: "block", marginBottom: 10 }}>
         <Checkbox checked={draft.pr.enableApiFallback} onChange={(e) => set("pr.enableApiFallback", e.target.checked)} /> Enable GitHub API fallback
       </label>
+
       <h4>UI Recorder</h4>
       <NumberField
         label="Max screenshots/session"
@@ -126,12 +164,13 @@ export function SettingsPanel({ settings, onSaved }: Props) {
       <label style={{ display: "block", marginBottom: 10 }}>
         <Checkbox checked={draft.ui.recordScreenshots} onChange={(e) => set("ui.recordScreenshots", e.target.checked)} /> Record screenshots
       </label>
+
       <h4>Advanced</h4>
       <label style={{ display: "block", marginBottom: 10 }}>
         <Checkbox checked={draft.telemetry.localEnabled} onChange={(e) => set("telemetry.localEnabled", e.target.checked)} /> Local telemetry
       </label>
       <label style={{ display: "block", marginBottom: 10 }}>
-        <Checkbox checked={draft.safeMode.enabled} onChange={(e) => set("safeMode.enabled", e.target.checked)} /> Safe mode (disable UI recording, API fallback, telemetry)
+        <Checkbox checked={draft.safeMode.enabled} onChange={(e) => set("safeMode.enabled", e.target.checked)} /> Safe mode (disable AI analysis, UI recording, API fallback, telemetry)
       </label>
 
       {validation.errors.global ? <p style={{ color: "#ff6b6b" }}>{validation.errors.global}</p> : null}
