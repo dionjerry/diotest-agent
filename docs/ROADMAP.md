@@ -1,10 +1,25 @@
-# Roadmap (Near Term)
+# Roadmap
 
-## Current Slice
+## Near Term (Extension Maturity)
 
-- `feat/pr-context-extractor`: detect PR page, extract minimal PR context, render in Side Panel.
+- Harden PR/commit extraction reliability and fallback behavior.
+- Improve risk precision (reduce false positives and contradictory issues).
+- Strengthen output usability (clearer test artifacts and export quality).
+- Expand settings/control UX with safer defaults and clearer diagnostics.
 
-## Next Slices
+## Mid Term (IDE-Focused Testing Agent)
 
-- `feat/ui-recorder-events`: capture click/input/url steps and persist sessions.
-- `feat/pr-risk-scoring`: add deterministic PR risk scoring and ranked risk areas.
+- Bring analysis, risk, and test generation into an IDE-oriented workflow.
+- Add context-aware testing assistance during coding (not only post-PR).
+- Improve developer/QA collaboration loops around generated test artifacts.
+
+## Later (Optional Cloud Testing Functions)
+
+- Hosted analysis jobs for team workflows.
+- Organization-level policy/profile templates.
+- Optional integration connectors (issue trackers, sheets, release workflows).
+
+## Roadmap Notes
+
+- Community Edition remains local-first by default.
+- Future IDE/cloud milestones are directional and subject to validation.
