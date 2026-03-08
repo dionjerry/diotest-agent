@@ -1,0 +1,28 @@
+{
+  "meta": {
+    "schema_version": "1.0.0",
+    "prompt_version": "v1",
+    "engine_version": "0.1.0",
+    "settings_profile": {
+      "pr": { "maxFiles": 40, "maxDiffLines": 5000, "largePrTopRiskFiles": 15, "enableApiFallback": true },
+      "ui": { "maxScreenshotsPerSession": 100, "maxSessionStorageMB": 50, "eventThrottlePerSecond": 20, "screenshotDelayMs": 200, "recordScreenshots": true },
+      "telemetry": { "localEnabled": false },
+      "safeMode": { "enabled": false }
+    }
+  },
+  "session": {
+    "name": "example.com - Checkout Flow - 2026-03-08 14:22",
+    "domain": "example.com"
+  },
+  "recorded_steps": [
+    {
+      "step": 1,
+      "action": "click",
+      "target": "button[data-testid='login-submit']",
+      "screenshot": "step-1.png"
+    }
+  ],
+  "manual_test_cases": [
+    { "id": "TC-01", "title": "Checkout flow", "type": "manual" }
+  ]
+}

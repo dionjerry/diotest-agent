@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UiReviewExportV1",
+  "type": "object",
+  "required": ["meta", "session", "recorded_steps", "manual_test_cases"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["schema_version", "prompt_version", "engine_version"],
+      "properties": {
+        "schema_version": { "const": "1.0.0" },
+        "prompt_version": { "type": "string" },
+        "engine_version": { "type": "string" },
+        "settings_profile": { "type": "object" }
+      }
+    },
+    "session": { "type": "object" },
+    "recorded_steps": { "type": "array" },
+    "manual_test_cases": { "type": "array" }
+  }
+}

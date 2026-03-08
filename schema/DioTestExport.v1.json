@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DioTestExportV1",
+  "type": "object",
+  "required": ["meta", "risk_areas", "test_plan", "test_cases"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["schema_version", "prompt_version", "engine_version"],
+      "properties": {
+        "schema_version": { "const": "1.0.0" },
+        "prompt_version": { "type": "string" },
+        "engine_version": { "type": "string" },
+        "settings_profile": { "type": "object" }
+      }
+    },
+    "risk_areas": { "type": "array" },
+    "test_plan": { "type": "object" },
+    "test_cases": { "type": "array" }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "meta": {
+    "schema_version": "1.0.0",
+    "prompt_version": "v1",
+    "engine_version": "0.1.0",
+    "settings_profile": {
+      "pr": { "maxFiles": 40, "maxDiffLines": 5000, "largePrTopRiskFiles": 15, "enableApiFallback": true },
+      "ui": { "maxScreenshotsPerSession": 100, "maxSessionStorageMB": 50, "eventThrottlePerSecond": 20, "screenshotDelayMs": 200, "recordScreenshots": true },
+      "telemetry": { "localEnabled": false },
+      "safeMode": { "enabled": false }
+    }
+  },
+  "risk_areas": [
+    { "area": "auth/session", "severity": "high", "score": 8.2, "evidence_files": ["src/auth/login.ts"], "why": "Auth timeout logic changed" }
+  ],
+  "test_plan": {
+    "unit": [{ "title": "Validate login timeout handling" }],
+    "integration": [{ "title": "Verify login/session controller integration" }],
+    "e2e": [{ "title": "Login timeout journey in browser" }]
+  },
+  "test_cases": [
+    { "id": "TC-01", "type": "manual", "priority": "p0", "title": "Login timeout test" }
+  ]
+}

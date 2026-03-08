@@ -1,0 +1,12 @@
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: #0f172a;
+}
+
+* {
+  box-sizing: border-box;
+}
