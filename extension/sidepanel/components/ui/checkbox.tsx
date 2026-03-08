@@ -1,5 +1,6 @@
 import React from "react";
 
 export function Checkbox(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input type="checkbox" {...props} />;
+  const { className = "", ...rest } = props;
+  return <input type="checkbox" className={["dt-checkbox", className].filter(Boolean).join(" ")} {...rest} />;
 }

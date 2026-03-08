@@ -36,3 +36,13 @@ DioTest is a Manifest V3 Chrome extension with two modes:
 - No cloud sync backend
 - No auto test execution
 - No autonomous UI crawling
+
+## Current UI Baseline
+
+Baseline UI screenshots for this push are tracked in `docs/screenshots/` with these names:
+
+- `review-risk-panel.png`
+- `testplan-debug-panel.png`
+- `settings-panel.png`
+
+Note: the screen recording video is intentionally not committed to git and should be attached to PR/release notes externally.
