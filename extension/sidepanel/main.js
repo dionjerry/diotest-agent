@@ -29713,6 +29713,7 @@ function App() {
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: `severity-badge severity-${risk.severity}`, children: risk.severity.toUpperCase() }),
               " ",
               risk.area,
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "risk-why", children: risk.why }),
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "muted-wrap", children: risk.evidence_files.join(", ") })
             ] }, `${risk.area}-${idx}`)) })
           ] }),

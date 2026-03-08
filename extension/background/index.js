@@ -600,6 +600,91 @@ function blendRiskScores(aiScore, deterministicScore) {
   return round1(clamp(final, 0, 10));
 }
 
+// extension/engine/analysis/contextFilter.ts
+function isGeneratedBuildArtifact(path) {
+  const p = path.toLowerCase();
+  if (p.endsWith(".map") || p.endsWith(".min.js") || p.endsWith(".min.css")) {
+    return true;
+  }
+  if (p.includes("/dist/") || p.includes("/build/")) {
+    return true;
+  }
+  const knownCompiled = /* @__PURE__ */ new Set([
+    "extension/background/index.js",
+    "extension/content/pr-observer.js",
+    "extension/sidepanel/main.js",
+    "extension/sidepanel/main.css",
+    "extension/popup/main.js"
+  ]);
+  return knownCompiled.has(path);
+}
+function filterContextFiles(context) {
+  const filteredFiles = [];
+  let removedCount = 0;
+  for (const file of context.files) {
+    if (isGeneratedBuildArtifact(file.path)) {
+      removedCount += 1;
+      continue;
+    }
+    filteredFiles.push(file);
+  }
+  return {
+    context: { ...context, files: filteredFiles },
+    removedCount
+  };
+}
+
+// extension/engine/analysis/postprocess.ts
+function hasTestFiles(context) {
+  return context.files.some((f) => /(^|\/)(__tests__|test|tests|spec)(\/|\.|$)|\.(test|spec)\./i.test(f.path));
+}
+function mentionsNoTests(text) {
+  return /(no test files|absence of test|without test|missing tests?)/i.test(text);
+}
+function mentionsUncertainty(text) {
+  return /(token budget|trimmed context|partial (scan|coverage)|truncat(ed|ion)|insufficient context)/i.test(text);
+}
+function areaMentionsNoTests(area) {
+  return [area.area, area.why, ...area.evidence_files].some((part) => mentionsNoTests(part));
+}
+function testMentionsNoTests(test) {
+  return [test.title, test.notes ?? "", ...test.evidence_files].some((part) => mentionsNoTests(part));
+}
+function areaMentionsUncertainty(area) {
+  return [area.area, area.why, ...area.evidence_files].some((part) => mentionsUncertainty(part));
+}
+function testMentionsUncertainty(test) {
+  return [test.title, test.notes ?? "", ...test.evidence_files].some((part) => mentionsUncertainty(part));
+}
+function sanitizeAiIssues(payload, context, signals) {
+  let risk_areas = payload.risk_areas;
+  let unit = payload.test_plan.unit;
+  let integration = payload.test_plan.integration;
+  let e2e = payload.test_plan.e2e;
+  if (hasTestFiles(context)) {
+    risk_areas = risk_areas.filter((area) => !areaMentionsNoTests(area));
+    unit = unit.filter((test) => !testMentionsNoTests(test));
+    integration = integration.filter((test) => !testMentionsNoTests(test));
+    e2e = e2e.filter((test) => !testMentionsNoTests(test));
+  }
+  const hasUncertaintySignal = signals.trimmed || signals.coverage === "partial";
+  if (!hasUncertaintySignal) {
+    risk_areas = risk_areas.filter((area) => !areaMentionsUncertainty(area));
+    unit = unit.filter((test) => !testMentionsUncertainty(test));
+    integration = integration.filter((test) => !testMentionsUncertainty(test));
+    e2e = e2e.filter((test) => !testMentionsUncertainty(test));
+  }
+  return {
+    ...payload,
+    risk_areas,
+    test_plan: {
+      unit,
+      integration,
+      e2e
+    }
+  };
+}
+
 // extension/engine/analysis/orchestrator.ts
 function buildFailure(error, code) {
   return { ok: false, error, code };
@@ -636,6 +721,11 @@ async function runAiAnalyze(request) {
     } else {
       coverage = "deep_scan";
     }
+  }
+  const filtering = filterContextFiles(workingContext);
+  workingContext = filtering.context;
+  if (filtering.removedCount > 0) {
+    warnings.push(`Ignored ${filtering.removedCount} generated build artifact file(s) in analysis context.`);
   }
   const { summary, tokenEstimate, trimmed } = summarizeContext(
     workingContext,
@@ -675,6 +765,7 @@ async function runAiAnalyze(request) {
     }
     aiPayload = repair.data;
   }
+  aiPayload = sanitizeAiIssues(aiPayload, workingContext, { trimmed, coverage });
   const deterministic = computeDeterministicRiskScore(workingContext, { coverage, trimmed });
   const finalRiskScore = blendRiskScores(aiPayload.risk_score, deterministic.score);
   return {

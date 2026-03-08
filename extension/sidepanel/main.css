@@ -248,6 +248,11 @@ body,
   display: grid;
   gap: 4px;
 }
+.risk-why {
+  color: #e5e7eb;
+  font-size: 13px;
+  line-height: 1.35;
+}
 .severity-badge {
   display: inline-block;
   padding: 2px 8px;

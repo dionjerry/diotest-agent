@@ -230,6 +230,7 @@ export default function App() {
                     {analysis.risk_areas.map((risk, idx) => (
                       <li key={`${risk.area}-${idx}`} className="risk-item">
                         <span className={`severity-badge severity-${risk.severity}`}>{risk.severity.toUpperCase()}</span> {risk.area}
+                        <div className="risk-why">{risk.why}</div>
                         <div className="muted-wrap">{risk.evidence_files.join(", ")}</div>
                       </li>
                     ))}

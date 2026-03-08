@@ -7,6 +7,8 @@ import { generateStructured } from "../providers/openai";
 import { AI_ANALYSIS_SCHEMA, isValidAiAnalysisResult } from "./schema";
 import { summarizeContext } from "./summarize";
 import { blendRiskScores, computeDeterministicRiskScore } from "./risk";
+import { filterContextFiles } from "./contextFilter";
+import { sanitizeAiIssues } from "./postprocess";
 import type { AiAnalysisResultV1, AnalysisMode, AnalyzeResult, ExtractionContext } from "./types";
 
 export interface AnalyzeRequest {
@@ -59,6 +61,12 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
     }
   }
 
+  const filtering = filterContextFiles(workingContext);
+  workingContext = filtering.context;
+  if (filtering.removedCount > 0) {
+    warnings.push(`Ignored ${filtering.removedCount} generated build artifact file(s) in analysis context.`);
+  }
+
   const { summary, tokenEstimate, trimmed } = summarizeContext(
     workingContext,
     settings.pr.maxDiffLines,
@@ -103,6 +111,8 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
 
     aiPayload = repair.data;
   }
+
+  aiPayload = sanitizeAiIssues(aiPayload, workingContext, { trimmed, coverage });
 
   const deterministic = computeDeterministicRiskScore(workingContext, { coverage, trimmed });
   const finalRiskScore = blendRiskScores(aiPayload.risk_score, deterministic.score);

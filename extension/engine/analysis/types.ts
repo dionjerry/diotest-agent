@@ -29,7 +29,7 @@ export interface RiskArea {
 export interface SuggestedTest {
   title: string;
   evidence_files: string[];
-  notes?: string;
+  notes?: string | null;
 }
 
 export interface ManualTestCase {
