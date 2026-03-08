@@ -6,11 +6,15 @@ import { DEFAULT_SETTINGS } from "../../engine/settings/defaults";
 import { loadSettings, saveSettingsAtomically } from "../../engine/settings/storage";
 import { autoSessionName } from "../../engine/ui/sessionNaming";
 import { clearRecorderState, persistRecorderState, restoreRecorderState } from "../../engine/worker/state";
+import { runPrAnalyze } from "../../engine/pr/orchestrator";
+import type { PrExtractResult } from "../../engine/pr/types";
 
 type Message =
   | { type: "settings.load" }
   | { type: "settings.save"; payload: unknown }
   | { type: "analysis.run"; payload: { mode: "pr" | "ui"; context?: Record<string, unknown> } }
+  | { type: "pr.analyze"; payload: { tabId: number } }
+  | { type: "pr.pageState"; payload: { onPr: boolean; url: string } }
   | { type: "recorder.start"; payload: { tabId: number; domain: string; flow: string } }
   | { type: "recorder.stop" }
   | { type: "recorder.status" }
@@ -19,6 +23,18 @@ type Message =
 function setBadge(text: string, color = "#d0021b"): void {
   void chrome.action.setBadgeText({ text });
   void chrome.action.setBadgeBackgroundColor({ color });
+}
+
+async function requestPrExtract(tabId: number): Promise<PrExtractResult> {
+  try {
+    const response = (await chrome.tabs.sendMessage(tabId, { type: "pr.extract" })) as { payload?: PrExtractResult };
+    if (!response?.payload) {
+      return { ok: false, error: ERROR_MESSAGES.PR_EXTRACTION_FAILED };
+    }
+    return response.payload;
+  } catch {
+    return { ok: false, error: ERROR_MESSAGES.PR_EXTRACTION_FAILED };
+  }
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -63,6 +79,26 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
           },
           note: `${message.payload.mode.toUpperCase()} analysis accepted`
         });
+        return;
+      }
+      case "pr.pageState": {
+        if (message.payload.onPr) {
+          setBadge("PR", "#2563eb");
+        } else {
+          const recorder = await restoreRecorderState();
+          setBadge(recorder.state?.active ? "REC" : "", recorder.state?.active ? "#d0021b" : "#2563eb");
+        }
+        sendResponse({ ok: true });
+        return;
+      }
+      case "pr.analyze": {
+        const settings = await loadSettings();
+        const result = await runPrAnalyze({
+          rawSettings: settings,
+          tabId: message.payload.tabId,
+          extractPrContext: requestPrExtract
+        });
+        sendResponse(result);
         return;
       }
       case "recorder.start": {
