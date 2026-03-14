@@ -41,6 +41,7 @@ export interface ManualTestCase {
   preconditions: string[];
   steps: string[];
   expected: string[];
+  source?: "flow" | "page" | null;
 }
 
 export interface AiAnalysisResultV1 {

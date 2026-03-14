@@ -1,8 +1,59 @@
 # DioTest Agents (Community Edition)
 
-DioTest is a local-first AI testing assistant currently delivered as a Manifest V3 browser extension for GitHub PR/commit review workflows.
+DioTest is a local-first AI testing assistant delivered as a Manifest V3 browser extension. It now supports two complementary workflows in one sidepanel:
 
-## Current MVP (Browser Extension)
+- change-aware PR and commit review for GitHub
+- exploratory UI recording that turns browser sessions into reviewed manual cases and automation-ready scenarios
+
+## What DioTest Does Today
+
+### PR and commit review
+- Extracts GitHub PR and commit context directly from the page.
+- Falls back deterministically when extraction is incomplete: DOM extraction -> GitHub API deep scan -> explicit partial mode.
+- Produces structured outputs for risk areas, test plan, and manual test cases.
+- Blends deterministic and AI reasoning, with debug visibility into evidence quality and scoring.
+
+### UI recorder and review flow
+- Records browser interactions into local recorder sessions.
+- Normalizes noisy event streams into a cleaner reviewed timeline.
+- Provides a dedicated recorder review workspace with `Overview`, `Steps`, and `Results` tabs.
+- Lets you keep or remove reviewed steps before generating outputs.
+- Generates both manual test cases and a Playwright-oriented scenario from the same reviewed session.
+
+### Smarter recorder generation
+- Uses reviewed kept steps as the primary evidence source.
+- Optionally analyzes screenshot pixels during generation.
+- Optionally includes lightweight page summaries captured from visited pages.
+- Derives both:
+  - flow-derived cases from the path the user actually took
+  - page-derived cases from visible UI opportunities on visited pages
+- Keeps the Playwright scenario focused on the main recorded flow instead of turning it into a catch-all list.
+
+## Why DioTest
+
+- Exploratory testing becomes reusable test knowledge instead of being lost after a session.
+- One recording can produce reviewed manual cases and automation-ready scenarios.
+- Page visits contribute additional test opportunity discovery beyond exact clicks.
+- The workflow stays local-first and extension-native, with user-controlled settings and keys.
+- Debug output remains explainable instead of hiding why a result was produced.
+
+## Recorder Review Flow
+
+1. Record a browser session.
+2. Open the saved session in the sidepanel.
+3. Review the normalized step timeline and remove noise if needed.
+4. Inspect session context in `Overview`.
+5. Generate outputs from the curated session in `Results`.
+6. Optionally enable:
+   - `Analyze screenshots`
+   - `Include page summaries`
+
+Generated outputs can include:
+- `3-6` manual test cases
+- a Playwright scenario focused on the primary recorded path
+- a mix of `flow-derived` and `page-derived` manual cases when the visited pages expose distinct UI opportunities
+
+## Current MVP Scope
 
 What works today:
 
@@ -10,42 +61,39 @@ What works today:
 - Deterministic fallback path: DOM extraction -> GitHub API deep scan -> explicit partial mode.
 - AI-first test planning with deterministic + AI blended risk scoring.
 - Structured outputs for risk areas, test plan, and manual test cases.
-- Manual cases include explicit rationale (`why`) and evidence files, with strict anti-generic guardrails.
-- Debug inspector with context coverage and risk-formula breakdown.
-- Debug diagnostics include extraction source, analysis quality, dropped files, and normalization flags.
+- Recorder session capture with local persistence in `chrome.storage.local`.
+- Recorder step cleanup for repeated scrolls, incremental typing noise, and weak labels.
+- Recorder result generation with reviewed steps, page transitions, screenshots, and lightweight page summaries.
+- Recorder generation states in the UI, including save/generate in-flight feedback and duplicate-click protection.
+- Debug diagnostics including extraction source, analysis quality, dropped files, and normalization flags.
 - Safe-mode and validated settings persisted in `chrome.storage.local`.
-
-## Why DioTest
-
-- Change-aware PR testing: recommendations are anchored to changed files and diffs.
-- Explainable risk reasoning: deterministic scoring is blended with model output and exposed in Debug.
-- Local-first trust posture: Community Edition runs extension-side with user-controlled keys/settings.
 
 ## Product Direction
 
-- **Now:** Browser extension MVP for PR/commit testing intelligence.
-- **Next:** IDE-focused Testing Agent workspace (code, risk, tests, and review context in one flow).
-- **Later:** Optional cloud testing functions (hosted analysis jobs, org policies, and integration connectors).
+- **Now:** Browser extension for PR review plus exploratory UI session-to-test generation.
+- **Next:** IDE-focused testing workspace that combines code, changed surfaces, recorder sessions, and generated tests in one flow.
+- **Later:** Optional hosted analysis jobs, organization policies, and integration connectors.
 
 ## Stack
 
 - React + TypeScript
 - MV3 extension runtime (content script + service worker + side panel)
+- OpenAI-backed structured generation with text and optional multimodal recorder inputs
 - Vitest + ESLint + TypeScript checks
 
 ## Scripts
 
-- `pnpm dev` (or `npm run dev`)
-- `pnpm build` (or `npm run build`)
-- `pnpm test` (or `npm run test`)
-- `pnpm lint` (or `npm run lint`)
-- `pnpm typecheck` (or `npm run typecheck`)
+- `pnpm dev` or `npm run dev`
+- `pnpm build` or `npm run build`
+- `pnpm test` or `npm run test`
+- `pnpm lint` or `npm run lint`
+- `pnpm typecheck` or `npm run typecheck`
 
 ## v0.1 Constraints
 
 - Editable settings with hard ranges and validation
 - Atomic settings save in `chrome.storage.local`
-- Safe mode disables UI recording, API fallback, and telemetry
+- Safe mode disables recorder capture, API fallback, and telemetry-sensitive flows
 - Non-sensitive settings snapshot only in export metadata
 - Export naming conventions:
   - `diotest_pr_<repo>_<pr>.json|md`
@@ -56,9 +104,9 @@ What works today:
 - No repo-wide scan
 - No CI integration execution
 - No Jira/Trello/Sheets integration
-- No cloud storage/sync backend
-- No auto test execution
-- No autonomous UI crawling
+- No cloud storage or sync backend
+- No autonomous full-site crawling beyond pages the user actually visited
+- No autonomous test execution
 
 ## Learn More
 

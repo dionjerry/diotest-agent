@@ -28579,7 +28579,14 @@ function validateSettings(input) {
 
 // extension/sidepanel/lib/messages.ts
 async function sendMessage(msg) {
-  return chrome.runtime.sendMessage(msg);
+  try {
+    return await chrome.runtime.sendMessage(msg);
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Message dispatch failed."
+    };
+  }
 }
 
 // extension/sidepanel/components/ui/button.tsx
@@ -28606,36 +28613,62 @@ function Input(props) {
 
 // extension/sidepanel/components/SettingsPanel.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
+function Field(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "field-wrap", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("label", { className: "field-label", children: props.label }),
+    props.children,
+    props.hint && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "field-hint", children: props.hint }),
+    props.error && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "field-error", children: props.error })
+  ] });
+}
 function NumberField(props) {
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("label", { style: { display: "block", marginBottom: 10 }, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { children: props.label }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Input, { type: "number", value: props.value, onChange: (e) => props.onChange(Number(e.target.value)) }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("small", { style: { display: "block" }, children: props.hint }),
-    props.error ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("small", { style: { color: "#ff6b6b" }, children: props.error }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: props.label, hint: props.hint, error: props.error, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    Input,
+    {
+      type: "number",
+      value: props.value,
+      onChange: (e) => props.onChange(Number(e.target.value))
+    }
+  ) });
+}
+function CheckboxField(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("label", { className: "checkbox-field", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      Checkbox,
+      {
+        checked: props.checked,
+        onChange: (e) => props.onChange(e.target.checked)
+      }
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "checkbox-field-body", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "checkbox-field-label", children: props.label }),
+      props.desc && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "checkbox-field-desc", children: props.desc })
+    ] })
   ] });
 }
 function SettingsPanel({ settings, onSaved }) {
   const [draft, setDraft] = (0, import_react.useState)(settings);
   const [saveError, setSaveError] = (0, import_react.useState)(null);
+  const [saved, setSaved] = (0, import_react.useState)(false);
   const validation = (0, import_react.useMemo)(() => validateSettings(draft), [draft]);
   function set(path, value) {
     const next = structuredClone(draft);
     const [a, b] = path.split(".");
     next[a][b] = value;
     setDraft(next);
+    setSaved(false);
   }
   async function save() {
-    const result = await sendMessage({
-      type: "settings.save",
-      payload: draft
-    });
+    setSaveError(null);
+    const result = await sendMessage({ type: "settings.save", payload: draft });
     if (!result.ok || !result.settings) {
-      setSaveError("Unable to save settings. Fix validation errors.");
+      setSaveError("Unable to save. Fix validation errors first.");
       return;
     }
-    setSaveError(null);
     onSaved(result.settings);
     setDraft(result.settings);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2e3);
   }
   const prMaxFilesRange = SETTING_RANGES["pr.maxFiles"];
   const prMaxDiffRange = SETTING_RANGES["pr.maxDiffLines"];
@@ -28644,151 +28677,181 @@ function SettingsPanel({ settings, onSaved }) {
   const uiStoreRange = SETTING_RANGES["ui.maxSessionStorageMB"];
   const uiThrottleRange = SETTING_RANGES["ui.eventThrottlePerSecond"];
   const uiDelayRange = SETTING_RANGES["ui.screenshotDelayMs"];
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h3", { children: "Settings" }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { children: "DioTest accesses only the active tab when you explicitly start UI recording." }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h4", { children: "AI" }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("label", { style: { display: "block", marginBottom: 10 }, children: [
-      "OpenAI API key",
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-        Input,
-        {
-          type: "password",
-          value: draft.auth.openaiApiKey,
-          onChange: (e) => set("auth.openaiApiKey", e.target.value),
-          placeholder: "sk-..."
-        }
-      )
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("label", { style: { display: "block", marginBottom: 10 }, children: [
-      "OpenAI model",
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "settings-root", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "settings-section", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "settings-section-title", children: "AI" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Field, { label: "API key", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+          Input,
+          {
+            type: "password",
+            value: draft.auth.openaiApiKey,
+            onChange: (e) => set("auth.openaiApiKey", e.target.value),
+            placeholder: "sk-\u2026 or sk-ant-\u2026"
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "field-hint", children: "OpenAI (sk-\u2026) or Anthropic (sk-ant-\u2026) key" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: "Model", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
         "select",
         {
           className: "dt-input",
           value: draft.analysis.model,
           onChange: (e) => set("analysis.model", e.target.value),
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4.1-mini", children: "gpt-4.1-mini" }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4.1", children: "gpt-4.1" }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4o-mini", children: "gpt-4o-mini" }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4o", children: "gpt-4o" })
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("optgroup", { label: "Anthropic", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "claude-opus-4-5", children: "claude-opus-4-5" }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "claude-sonnet-4-5", children: "claude-sonnet-4-5" }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "claude-haiku-4-5", children: "claude-haiku-4-5" })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("optgroup", { label: "OpenAI", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4.1-mini", children: "gpt-4.1-mini" }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4.1", children: "gpt-4.1" }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4o-mini", children: "gpt-4o-mini" }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4o", children: "gpt-4o" })
+            ] })
           ]
         }
-      )
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("label", { style: { display: "block", marginBottom: 10 }, children: [
-      "GitHub token (optional, deep scan)",
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      ) }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: "GitHub token", hint: "Optional \u2014 required for deep scan on private repos", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
         Input,
         {
           type: "password",
           value: draft.auth.githubToken,
           onChange: (e) => set("auth.githubToken", e.target.value),
-          placeholder: "ghp_..."
+          placeholder: "ghp_\u2026"
+        }
+      ) }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        CheckboxField,
+        {
+          label: "Enable deep scan by default",
+          desc: "Fetches full file context from GitHub API for better accuracy",
+          checked: draft.analysis.deepScanDefault,
+          onChange: (v) => set("analysis.deepScanDefault", v)
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("label", { style: { display: "block", marginBottom: 10 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Checkbox, { checked: draft.analysis.deepScanDefault, onChange: (e) => set("analysis.deepScanDefault", e.target.checked) }),
-      " Enable deep scan by default"
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "settings-section", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "settings-section-title", children: "PR Mode" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        NumberField,
+        {
+          label: "Max files",
+          value: draft.pr.maxFiles,
+          onChange: (v) => set("pr.maxFiles", v),
+          hint: `${prMaxFilesRange.min}\u2013${prMaxFilesRange.max} (default ${DEFAULT_SETTINGS.pr.maxFiles})`,
+          error: validation.errors["pr.maxFiles"]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        NumberField,
+        {
+          label: "Max diff lines",
+          value: draft.pr.maxDiffLines,
+          onChange: (v) => set("pr.maxDiffLines", v),
+          hint: `${prMaxDiffRange.min}\u2013${prMaxDiffRange.max} (default ${DEFAULT_SETTINGS.pr.maxDiffLines})`,
+          error: validation.errors["pr.maxDiffLines"]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        NumberField,
+        {
+          label: "Large PR top-risk files",
+          value: draft.pr.largePrTopRiskFiles,
+          onChange: (v) => set("pr.largePrTopRiskFiles", v),
+          hint: `${prTopRiskRange.min}\u2013${prTopRiskRange.max} (default ${DEFAULT_SETTINGS.pr.largePrTopRiskFiles})`,
+          error: validation.errors["pr.largePrTopRiskFiles"]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        CheckboxField,
+        {
+          label: "Enable GitHub API fallback",
+          checked: draft.pr.enableApiFallback,
+          onChange: (v) => set("pr.enableApiFallback", v)
+        }
+      )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h4", { children: "PR Mode" }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-      NumberField,
-      {
-        label: "Max files",
-        value: draft.pr.maxFiles,
-        onChange: (v) => set("pr.maxFiles", v),
-        hint: `Range ${prMaxFilesRange.min}-${prMaxFilesRange.max} (default ${DEFAULT_SETTINGS.pr.maxFiles})`,
-        error: validation.errors["pr.maxFiles"]
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-      NumberField,
-      {
-        label: "Max diff lines",
-        value: draft.pr.maxDiffLines,
-        onChange: (v) => set("pr.maxDiffLines", v),
-        hint: `Range ${prMaxDiffRange.min}-${prMaxDiffRange.max} (default ${DEFAULT_SETTINGS.pr.maxDiffLines})`,
-        error: validation.errors["pr.maxDiffLines"]
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-      NumberField,
-      {
-        label: "Large PR top-risk files",
-        value: draft.pr.largePrTopRiskFiles,
-        onChange: (v) => set("pr.largePrTopRiskFiles", v),
-        hint: `Range ${prTopRiskRange.min}-${prTopRiskRange.max} (default ${DEFAULT_SETTINGS.pr.largePrTopRiskFiles})`,
-        error: validation.errors["pr.largePrTopRiskFiles"]
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("label", { style: { display: "block", marginBottom: 10 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Checkbox, { checked: draft.pr.enableApiFallback, onChange: (e) => set("pr.enableApiFallback", e.target.checked) }),
-      " Enable GitHub API fallback"
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "settings-section", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "settings-section-title", children: "UI Recorder" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        NumberField,
+        {
+          label: "Max screenshots / session",
+          value: draft.ui.maxScreenshotsPerSession,
+          onChange: (v) => set("ui.maxScreenshotsPerSession", v),
+          hint: `${uiShotsRange.min}\u2013${uiShotsRange.max} (default ${DEFAULT_SETTINGS.ui.maxScreenshotsPerSession})`,
+          error: validation.errors["ui.maxScreenshotsPerSession"]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        NumberField,
+        {
+          label: "Max session storage (MB)",
+          value: draft.ui.maxSessionStorageMB,
+          onChange: (v) => set("ui.maxSessionStorageMB", v),
+          hint: `${uiStoreRange.min}\u2013${uiStoreRange.max} (default ${DEFAULT_SETTINGS.ui.maxSessionStorageMB})`,
+          error: validation.errors["ui.maxSessionStorageMB"]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        NumberField,
+        {
+          label: "Event throttle / sec",
+          value: draft.ui.eventThrottlePerSecond,
+          onChange: (v) => set("ui.eventThrottlePerSecond", v),
+          hint: `${uiThrottleRange.min}\u2013${uiThrottleRange.max} (default ${DEFAULT_SETTINGS.ui.eventThrottlePerSecond})`,
+          error: validation.errors["ui.eventThrottlePerSecond"]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        NumberField,
+        {
+          label: "Screenshot delay (ms)",
+          value: draft.ui.screenshotDelayMs,
+          onChange: (v) => set("ui.screenshotDelayMs", v),
+          hint: `${uiDelayRange.min}\u2013${uiDelayRange.max} (default ${DEFAULT_SETTINGS.ui.screenshotDelayMs})`,
+          error: validation.errors["ui.screenshotDelayMs"]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        CheckboxField,
+        {
+          label: "Record screenshots",
+          checked: draft.ui.recordScreenshots,
+          onChange: (v) => set("ui.recordScreenshots", v)
+        }
+      )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h4", { children: "UI Recorder" }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-      NumberField,
-      {
-        label: "Max screenshots/session",
-        value: draft.ui.maxScreenshotsPerSession,
-        onChange: (v) => set("ui.maxScreenshotsPerSession", v),
-        hint: `Range ${uiShotsRange.min}-${uiShotsRange.max} (default ${DEFAULT_SETTINGS.ui.maxScreenshotsPerSession})`,
-        error: validation.errors["ui.maxScreenshotsPerSession"]
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-      NumberField,
-      {
-        label: "Max session storage (MB)",
-        value: draft.ui.maxSessionStorageMB,
-        onChange: (v) => set("ui.maxSessionStorageMB", v),
-        hint: `Range ${uiStoreRange.min}-${uiStoreRange.max} (default ${DEFAULT_SETTINGS.ui.maxSessionStorageMB})`,
-        error: validation.errors["ui.maxSessionStorageMB"]
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-      NumberField,
-      {
-        label: "Event throttle/sec",
-        value: draft.ui.eventThrottlePerSecond,
-        onChange: (v) => set("ui.eventThrottlePerSecond", v),
-        hint: `Range ${uiThrottleRange.min}-${uiThrottleRange.max} (default ${DEFAULT_SETTINGS.ui.eventThrottlePerSecond})`,
-        error: validation.errors["ui.eventThrottlePerSecond"]
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-      NumberField,
-      {
-        label: "Screenshot delay (ms)",
-        value: draft.ui.screenshotDelayMs,
-        onChange: (v) => set("ui.screenshotDelayMs", v),
-        hint: `Range ${uiDelayRange.min}-${uiDelayRange.max} (default ${DEFAULT_SETTINGS.ui.screenshotDelayMs})`,
-        error: validation.errors["ui.screenshotDelayMs"]
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("label", { style: { display: "block", marginBottom: 10 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Checkbox, { checked: draft.ui.recordScreenshots, onChange: (e) => set("ui.recordScreenshots", e.target.checked) }),
-      " Record screenshots"
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "settings-section", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "settings-section-title", children: "Advanced" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        CheckboxField,
+        {
+          label: "Local telemetry",
+          desc: "Stores anonymous usage data locally only",
+          checked: draft.telemetry.localEnabled,
+          onChange: (v) => set("telemetry.localEnabled", v)
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        CheckboxField,
+        {
+          label: "Safe mode",
+          desc: "Disables AI analysis, UI recording, API fallback, and telemetry",
+          checked: draft.safeMode.enabled,
+          onChange: (v) => set("safeMode.enabled", v)
+        }
+      )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h4", { children: "Advanced" }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("label", { style: { display: "block", marginBottom: 10 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Checkbox, { checked: draft.telemetry.localEnabled, onChange: (e) => set("telemetry.localEnabled", e.target.checked) }),
-      " Local telemetry"
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("label", { style: { display: "block", marginBottom: 10 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Checkbox, { checked: draft.safeMode.enabled, onChange: (e) => set("safeMode.enabled", e.target.checked) }),
-      " Safe mode (disable AI analysis, UI recording, API fallback, telemetry)"
-    ] }),
-    validation.errors.global ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { style: { color: "#ff6b6b" }, children: validation.errors.global }) : null,
-    saveError ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { style: { color: "#ff6b6b" }, children: saveError }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button, { disabled: !validation.valid, onClick: () => void save(), children: "Save" }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button, { variant: "secondary", onClick: () => setDraft({ ...draft, pr: { ...DEFAULT_SETTINGS.pr } }), children: "Reset PR section" }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button, { variant: "secondary", onClick: () => setDraft({ ...draft, ui: { ...DEFAULT_SETTINGS.ui } }), children: "Reset UI section" }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button, { variant: "secondary", onClick: () => setDraft(structuredClone(DEFAULT_SETTINGS)), children: "Reset all to defaults" })
+    validation.errors.global && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "warning-banner", children: validation.errors.global }),
+    saveError && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "warning-banner", children: saveError }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "settings-actions", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button, { disabled: !validation.valid, onClick: () => void save(), children: saved ? "Saved \u2713" : "Save settings" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button, { variant: "secondary", onClick: () => setDraft({ ...draft, pr: { ...DEFAULT_SETTINGS.pr } }), children: "Reset PR" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button, { variant: "secondary", onClick: () => setDraft({ ...draft, ui: { ...DEFAULT_SETTINGS.ui } }), children: "Reset recorder" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Button, { variant: "ghost", onClick: () => setDraft(structuredClone(DEFAULT_SETTINGS)), children: "Reset all" })
     ] })
   ] });
 }
@@ -29518,6 +29581,82 @@ function CodeViewer({ value, language = "text", expanded = false }) {
   ) });
 }
 
+// extension/sidepanel/lib/sessionsView.ts
+function byNewestDate(a, b) {
+  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+}
+function buildRepoGroups(threads) {
+  const byRepo = /* @__PURE__ */ new Map();
+  for (const thread of threads) {
+    const list = byRepo.get(thread.repo) ?? [];
+    list.push(thread);
+    byRepo.set(thread.repo, list);
+  }
+  const groups = Array.from(byRepo.entries()).map(([repo, repoThreads]) => {
+    const runCount = repoThreads.reduce((sum, thread) => sum + thread.runCount, 0);
+    const lastUpdatedAt = repoThreads.map((thread) => thread.lastUpdatedAt).sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? (/* @__PURE__ */ new Date(0)).toISOString();
+    return {
+      repo,
+      threadCount: repoThreads.length,
+      runCount,
+      lastUpdatedAt
+    };
+  });
+  return groups.sort((a, b) => new Date(b.lastUpdatedAt).getTime() - new Date(a.lastUpdatedAt).getTime());
+}
+function buildRunsForRepo(threads, repo) {
+  if (!repo) return [];
+  const runs = threads.filter((thread) => thread.repo === repo).flatMap((thread) => thread.runs).sort(byNewestDate);
+  return runs;
+}
+function sessionsNavReducer(state, action) {
+  switch (action.type) {
+    case "open_repo":
+      return { mode: "runs", selectedRepo: action.repo, selectedSessionId: null };
+    case "open_session":
+      return { ...state, mode: "detail", selectedSessionId: action.sessionId };
+    case "back":
+      if (state.mode === "detail") return { ...state, mode: "runs", selectedSessionId: null };
+      if (state.mode === "runs") return { mode: "repos", selectedRepo: null, selectedSessionId: null };
+      return state;
+    case "reset":
+      return { mode: "repos", selectedRepo: null, selectedSessionId: null };
+    case "sync":
+      if (state.mode === "detail" && !action.sessionExists) {
+        if (action.repoHasRuns) return { ...state, mode: "runs", selectedSessionId: null };
+        return { mode: "repos", selectedRepo: null, selectedSessionId: null };
+      }
+      if (state.mode === "runs" && !action.repoHasRuns) {
+        return { mode: "repos", selectedRepo: null, selectedSessionId: null };
+      }
+      return state;
+    default:
+      return state;
+  }
+}
+
+// extension/sidepanel/lib/recorderView.ts
+function recorderNavReducer(state, action) {
+  switch (action.type) {
+    case "open_domain":
+      return { mode: "sessions", selectedDomain: action.domain, selectedSessionId: null };
+    case "open_session":
+      return { ...state, mode: "detail", selectedSessionId: action.sessionId };
+    case "back":
+      if (state.mode === "detail") return { ...state, mode: "sessions", selectedSessionId: null };
+      if (state.mode === "sessions") return { mode: "domains", selectedDomain: null, selectedSessionId: null };
+      return state;
+    case "reset":
+      return { mode: "domains", selectedDomain: null, selectedSessionId: null };
+    default:
+      return state;
+  }
+}
+function sessionsForDomain(groups, domain) {
+  if (!domain) return [];
+  return groups.find((group) => group.domain === domain)?.sessions ?? [];
+}
+
 // extension/sidepanel/App.tsx
 var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
 function formatElapsed(startedAt) {
@@ -29540,19 +29679,135 @@ async function resolveAnalysisTabId() {
   if (sourceTabId) {
     try {
       const tab = await chrome.tabs.get(sourceTabId);
-      if (tab?.id && tab.url?.startsWith("https://github.com/")) {
-        return tab.id;
-      }
+      if (tab?.id && tab.url?.startsWith("https://github.com/")) return tab.id;
     } catch {
     }
   }
-  const githubTabs = await chrome.tabs.query({ currentWindow: true, url: ["https://github.com/*/*/pull/*", "https://github.com/*/*/commit/*"] });
+  const githubTabs = await chrome.tabs.query({
+    currentWindow: true,
+    url: ["https://github.com/*/*/pull/*", "https://github.com/*/*/commit/*"]
+  });
   return githubTabs[0]?.id ?? null;
 }
+function getRiskClass(score) {
+  if (score >= 7) return "score-high";
+  if (score >= 4) return "score-medium";
+  return "score-low";
+}
+function getRiskLabel(score) {
+  if (score >= 7) return "High risk";
+  if (score >= 4) return "Medium risk";
+  return "Low risk";
+}
+function cleanSessionTitle(title) {
+  if (!title) return null;
+  const normalized = title.trim();
+  if (!normalized) return null;
+  if (/^search code, repositories, users, issues, pull requests\.\.\.$/i.test(normalized)) return null;
+  return normalized;
+}
+function formatRecorderAction(action) {
+  switch (action) {
+    case "click":
+      return "Clicked";
+    case "input":
+      return "Typed";
+    case "change":
+      return "Changed";
+    case "select":
+      return "Selected";
+    case "submit":
+      return "Submitted";
+    case "focus":
+      return "Focused";
+    case "blur":
+      return "Blurred";
+    case "scroll":
+      return "Scrolled";
+    case "keydown":
+      return "Pressed key";
+    case "navigation":
+      return "Navigated";
+    default:
+      return action;
+  }
+}
+function formatRecorderStepMeta(step) {
+  const parts = [new Date(step.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })];
+  if (step.selector) parts.push(step.selector);
+  if (step.value) parts.push(step.value);
+  if (step.key) parts.push(step.key);
+  return parts.join(" \xB7 ");
+}
+function formatRecorderStatus(status) {
+  switch (status) {
+    case "generated":
+      return "Generated";
+    case "review":
+      return "Ready for review";
+    case "recording":
+      return "Recording";
+    default:
+      return status;
+  }
+}
+function getRecorderGenerateLabel(state) {
+  switch (state) {
+    case "saving_review":
+      return "Saving Review\u2026";
+    case "generating":
+      return "Generating\u2026";
+    case "error":
+      return "Generate Again";
+    default:
+      return "Generate Outputs";
+  }
+}
+function getRecorderUrlLabel(value) {
+  try {
+    const url = new URL(value);
+    const path = `${url.pathname}${url.search ? "?" : ""}`;
+    return `${url.hostname}${path}`;
+  } catch {
+    return value;
+  }
+}
+function UrlCard({ label, value }) {
+  const [expanded, setExpanded] = (0, import_react5.useState)(false);
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-url-card", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-url-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: label }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions recorder-url-actions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => setExpanded((current) => !current), children: expanded ? "Collapse" : "Expand" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(CopyButton, { text: value }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("a", { className: "recorder-url-open", href: value, target: "_blank", rel: "noreferrer", children: "Open" })
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: `recorder-url-value${expanded ? " expanded" : ""}`, title: value, children: expanded ? value : getRecorderUrlLabel(value) })
+  ] });
+}
+function CopyButton({ text, label = "Copy" }) {
+  const [copied, setCopied] = (0, import_react5.useState)(false);
+  async function handleCopy() {
+    await copyText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { className: `manual-case-copy${copied ? " copied" : ""}`, onClick: () => void handleCopy(), children: copied ? "Copied!" : label });
+}
+var MODEL_OPTIONS = [
+  { group: "Anthropic", options: ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"] },
+  { group: "OpenAI", options: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"] }
+];
+var DEFAULT_RECORDER_GENERATION_OPTIONS = {
+  includeVision: false,
+  includePageSummaries: true
+};
 function App() {
   const [settings, setSettings] = (0, import_react5.useState)(DEFAULT_SETTINGS);
   const [tab, setTab] = (0, import_react5.useState)("review");
   const [recorder, setRecorder] = (0, import_react5.useState)({ active: false });
+  const [activeRecorderSession, setActiveRecorderSession] = (0, import_react5.useState)(null);
   const [analysis, setAnalysis] = (0, import_react5.useState)(null);
   const [debug, setDebug] = (0, import_react5.useState)(null);
   const [analyzeError, setAnalyzeError] = (0, import_react5.useState)(null);
@@ -29561,8 +29816,37 @@ function App() {
   const [isDebugExpanded, setIsDebugExpanded] = (0, import_react5.useState)(false);
   const [isPromptExpanded, setIsPromptExpanded] = (0, import_react5.useState)(false);
   const [isContextExpanded, setIsContextExpanded] = (0, import_react5.useState)(false);
+  const [isTrustExpanded, setIsTrustExpanded] = (0, import_react5.useState)(false);
+  const [sessionThreads, setSessionThreads] = (0, import_react5.useState)([]);
+  const [sessionsError, setSessionsError] = (0, import_react5.useState)(null);
+  const [selectedSession, setSelectedSession] = (0, import_react5.useState)(null);
+  const [sessionsNav, dispatchSessionsNav] = (0, import_react5.useReducer)(sessionsNavReducer, {
+    mode: "repos",
+    selectedRepo: null,
+    selectedSessionId: null
+  });
+  const [sessionsSurface, setSessionsSurface] = (0, import_react5.useState)("analysis");
+  const [recorderGroups, setRecorderGroups] = (0, import_react5.useState)([]);
+  const [recorderSessionsError, setRecorderSessionsError] = (0, import_react5.useState)(null);
+  const [selectedRecorderSession, setSelectedRecorderSession] = (0, import_react5.useState)(null);
+  const [recorderDetailTab, setRecorderDetailTab] = (0, import_react5.useState)("overview");
+  const [recorderGenerationOptions, setRecorderGenerationOptions] = (0, import_react5.useState)(DEFAULT_RECORDER_GENERATION_OPTIONS);
+  const [recorderRequestState, setRecorderRequestState] = (0, import_react5.useState)("idle");
+  const [recorderNav, dispatchRecorderNav] = (0, import_react5.useReducer)(recorderNavReducer, {
+    mode: "domains",
+    selectedDomain: null,
+    selectedSessionId: null
+  });
   const debugDetailsRef = (0, import_react5.useRef)(null);
-  const modelOptions = ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"];
+  async function refreshActiveRecorderSession(sessionId) {
+    const response = await sendMessage({
+      type: "recorder.session.get",
+      payload: { sessionId }
+    });
+    if (!response.ok) return null;
+    setActiveRecorderSession(response.session);
+    return response.session;
+  }
   (0, import_react5.useEffect)(() => {
     void (async () => {
       const loaded = await sendMessage({ type: "settings.load" });
@@ -29572,39 +29856,236 @@ function App() {
       }
       const status = await sendMessage({ type: "recorder.status" });
       if (status.ok && status.state) {
-        setRecorder({ active: status.state.active, startedAt: status.state.startedAt, domain: status.state.domain });
+        setRecorder({
+          active: status.state.active,
+          startedAt: status.state.startedAt,
+          domain: status.state.domain,
+          sessionId: status.state.sessionId
+        });
+        await refreshActiveRecorderSession(status.state.sessionId);
       }
       const intentData = await chrome.storage.local.get("diotest.ui.intent");
       const intent = intentData["diotest.ui.intent"];
-      if (intent === "settings") {
-        setTab("settings");
-      } else {
-        setTab("review");
-      }
-      if (intent === "review_analyze") {
-        await runAnalysis(loaded.ok ? loaded.settings.analysis.deepScanDefault : false);
-      }
-      if (intent) {
-        await chrome.storage.local.remove("diotest.ui.intent");
-      }
+      if (intent === "settings") setTab("settings");
+      else setTab("review");
+      if (intent === "review_analyze") await runAnalysis(loaded.ok ? loaded.settings.analysis.deepScanDefault : false);
+      if (intent) await chrome.storage.local.remove("diotest.ui.intent");
+      await refreshSessions();
+      await refreshRecorderSessions();
     })();
   }, []);
   (0, import_react5.useEffect)(() => {
     if (!recorder.active) return;
-    const t = setInterval(() => setRecorder((r) => ({ ...r })), 1e3);
+    const t = setInterval(() => {
+      setRecorder((r) => ({ ...r }));
+      if (recorder.sessionId) {
+        void refreshActiveRecorderSession(recorder.sessionId);
+      }
+    }, 1e3);
     return () => clearInterval(t);
-  }, [recorder.active]);
+  }, [recorder.active, recorder.sessionId]);
   (0, import_react5.useEffect)(() => {
-    if (isDebugExpanded) {
-      debugDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
+    if (isDebugExpanded) debugDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [isDebugExpanded]);
-  const recordingTime = (0, import_react5.useMemo)(() => recorder.startedAt ? formatElapsed(recorder.startedAt) : "00:00", [recorder]);
+  (0, import_react5.useEffect)(() => {
+    setRecorderDetailTab("overview");
+    setRecorderGenerationOptions(
+      selectedRecorderSession?.lastGenerationOptions ? {
+        includeVision: selectedRecorderSession.lastGenerationOptions.includeVision,
+        includePageSummaries: selectedRecorderSession.lastGenerationOptions.includePageSummaries
+      } : DEFAULT_RECORDER_GENERATION_OPTIONS
+    );
+    setRecorderRequestState("idle");
+  }, [selectedRecorderSession?.id]);
+  const recordingTime = (0, import_react5.useMemo)(
+    () => recorder.startedAt ? formatElapsed(recorder.startedAt) : "00:00",
+    [recorder]
+  );
+  const totalSavedRuns = (0, import_react5.useMemo)(
+    () => sessionThreads.reduce((total, thread) => total + thread.runCount, 0),
+    [sessionThreads]
+  );
+  const repoGroups = (0, import_react5.useMemo)(() => buildRepoGroups(sessionThreads), [sessionThreads]);
+  const runsForSelectedRepo = (0, import_react5.useMemo)(
+    () => buildRunsForRepo(sessionThreads, sessionsNav.selectedRepo),
+    [sessionThreads, sessionsNav.selectedRepo]
+  );
+  const recorderSessionsForSelectedDomain = (0, import_react5.useMemo)(
+    () => sessionsForDomain(recorderGroups, recorderNav.selectedDomain),
+    [recorderGroups, recorderNav.selectedDomain]
+  );
+  const liveRecorderSteps = (0, import_react5.useMemo)(
+    () => [...activeRecorderSession?.steps ?? []].slice(-8).reverse(),
+    [activeRecorderSession]
+  );
+  async function refreshSessions() {
+    const sessions = await sendMessage({ type: "sessions.list" });
+    if (!sessions.ok || !sessions.threads) {
+      setSessionsError("Unable to load saved sessions.");
+      return;
+    }
+    setSessionsError(null);
+    setSessionThreads(sessions.threads);
+    if (selectedSession) {
+      const current = sessions.threads.flatMap((thread) => thread.runs).find((run) => run.id === selectedSession.id) ?? null;
+      setSelectedSession(current);
+      dispatchSessionsNav({
+        type: "sync",
+        sessionExists: !!current,
+        repoHasRuns: buildRunsForRepo(sessions.threads, sessionsNav.selectedRepo).length > 0
+      });
+      return;
+    }
+    dispatchSessionsNav({
+      type: "sync",
+      sessionExists: false,
+      repoHasRuns: buildRunsForRepo(sessions.threads, sessionsNav.selectedRepo).length > 0
+    });
+  }
+  async function refreshRecorderSessions() {
+    const response = await sendMessage({ type: "recorder.session.list" });
+    if (!response.ok || !response.sessions) {
+      setRecorderSessionsError("Unable to load recorder sessions.");
+      return;
+    }
+    setRecorderSessionsError(null);
+    setRecorderGroups(response.sessions);
+    if (selectedRecorderSession) {
+      const current = response.sessions.flatMap((group) => group.sessions).find((session) => session.id === selectedRecorderSession.id) ?? null;
+      setSelectedRecorderSession(current);
+    }
+  }
+  async function openSession(sessionId) {
+    const response = await sendMessage({
+      type: "sessions.get",
+      payload: { sessionId }
+    });
+    if (!response.ok) {
+      setSessionsError("Could not open selected session.");
+      return;
+    }
+    setSelectedSession(response.session);
+    if (response.session) {
+      dispatchSessionsNav({ type: "open_session", sessionId: response.session.id });
+    }
+  }
+  async function openRecorderSession(sessionId) {
+    const response = await sendMessage({
+      type: "recorder.session.get",
+      payload: { sessionId }
+    });
+    if (!response.ok) {
+      setRecorderSessionsError("Could not open recorder session.");
+      return;
+    }
+    setSelectedRecorderSession(response.session);
+    if (response.session) {
+      dispatchRecorderNav({ type: "open_session", sessionId: response.session.id });
+    }
+  }
+  async function deleteRun(sessionId) {
+    if (!confirm("Delete this saved run?")) return;
+    await sendMessage({ type: "sessions.deleteRun", payload: { sessionId } });
+    if (selectedSession?.id === sessionId) {
+      setSelectedSession(null);
+      dispatchSessionsNav({ type: "back" });
+    }
+    await refreshSessions();
+  }
+  async function deleteRepoThread(repo) {
+    if (!confirm(`Delete all saved runs for ${repo}?`)) return;
+    const repoThreadIds = sessionThreads.filter((thread) => thread.repo === repo).map((thread) => thread.threadId);
+    await Promise.all(repoThreadIds.map((threadId) => sendMessage({ type: "sessions.deleteThread", payload: { threadId } })));
+    setSelectedSession(null);
+    dispatchSessionsNav({ type: "reset" });
+    await refreshSessions();
+  }
+  async function clearAllSessions() {
+    if (!confirm("Clear all saved analysis sessions?")) return;
+    await sendMessage({ type: "sessions.clearAll" });
+    setSelectedSession(null);
+    dispatchSessionsNav({ type: "reset" });
+    await refreshSessions();
+  }
+  async function saveRecorderReview(showProgress = false) {
+    if (!selectedRecorderSession) return;
+    if (showProgress) setRecorderRequestState("saving_review");
+    const response = await sendMessage({
+      type: "recorder.session.update",
+      payload: {
+        sessionId: selectedRecorderSession.id,
+        steps: selectedRecorderSession.steps.map((step) => ({ id: step.id, title: step.title, kept: step.kept }))
+      }
+    });
+    if (!response.ok || !response.session) {
+      setRecorderSessionsError("Unable to save recorder review.");
+      if (showProgress) setRecorderRequestState("error");
+      return;
+    }
+    setSelectedRecorderSession(response.session);
+    await refreshRecorderSessions();
+    if (showProgress) setRecorderRequestState("idle");
+  }
+  async function generateRecorderOutputs() {
+    if (!selectedRecorderSession) return;
+    if (recorderRequestState === "saving_review" || recorderRequestState === "generating") return;
+    setRecorderSessionsError(null);
+    setRecorderRequestState("saving_review");
+    const reviewResponse = await sendMessage({
+      type: "recorder.session.update",
+      payload: {
+        sessionId: selectedRecorderSession.id,
+        steps: selectedRecorderSession.steps.map((step) => ({ id: step.id, title: step.title, kept: step.kept }))
+      }
+    });
+    if (!reviewResponse.ok || !reviewResponse.session) {
+      setRecorderSessionsError("Unable to save recorder review.");
+      setRecorderRequestState("error");
+      return;
+    }
+    setSelectedRecorderSession(reviewResponse.session);
+    setRecorderRequestState("generating");
+    const response = await sendMessage({
+      type: "recorder.session.generate",
+      payload: {
+        sessionId: selectedRecorderSession.id,
+        includeVision: recorderGenerationOptions.includeVision,
+        includePageSummaries: recorderGenerationOptions.includePageSummaries
+      }
+    });
+    if (!response.ok || !response.session) {
+      setRecorderSessionsError(response.ok ? "Unable to generate recorder outputs." : response.error);
+      setRecorderRequestState("error");
+      return;
+    }
+    setSelectedRecorderSession(response.session);
+    setRecorderDetailTab("results");
+    await refreshRecorderSessions();
+    setRecorderRequestState("idle");
+  }
+  async function deleteRecorderSession(sessionId) {
+    if (!confirm("Delete this recorder session?")) return;
+    await sendMessage({ type: "recorder.session.delete", payload: { sessionId } });
+    if (selectedRecorderSession?.id === sessionId) {
+      setSelectedRecorderSession(null);
+      dispatchRecorderNav({ type: "back" });
+    }
+    await refreshRecorderSessions();
+  }
+  async function clearAllRecorderSessions() {
+    if (!confirm("Clear all recorder sessions?")) return;
+    await sendMessage({ type: "recorder.session.clearAll" });
+    setSelectedRecorderSession(null);
+    dispatchRecorderNav({ type: "reset" });
+    await refreshRecorderSessions();
+  }
   async function runAnalysis(scanOverride) {
     setAnalyzing(true);
     setAnalyzeError(null);
     setAnalysis(null);
     setDebug(null);
+    setIsTrustExpanded(false);
+    setIsDebugExpanded(false);
     try {
       const targetTabId = await resolveAnalysisTabId();
       if (!targetTabId) {
@@ -29613,20 +30094,14 @@ function App() {
       }
       const deepScan = typeof scanOverride === "boolean" ? scanOverride : includeDeepScan;
       const mode = deepScan ? "pr_commit_deep_scan" : "pr_commit";
-      const result = await sendMessage({
-        type: "analysis.run",
-        payload: {
-          tabId: targetTabId,
-          mode,
-          includeDeepScan: deepScan
-        }
-      });
+      const result = await sendMessage({ type: "analysis.run", payload: { tabId: targetTabId, mode, includeDeepScan: deepScan } });
       if (!result.ok) {
         setAnalyzeError(result.error);
         return;
       }
       setAnalysis(result.result);
       setDebug(result.debug);
+      await refreshSessions();
     } finally {
       setAnalyzing(false);
     }
@@ -29653,44 +30128,168 @@ function App() {
       payload: { tabId: active.id, domain, flow: "Recorded Flow" }
     });
     if (res.ok && res.session) {
-      setRecorder({ active: true, startedAt: res.session.startedAt, domain: res.session.domain });
+      setRecorder({
+        active: true,
+        startedAt: res.session.startedAt,
+        domain: res.session.domain,
+        sessionId: res.session.sessionId
+      });
+      await refreshActiveRecorderSession(res.session.sessionId);
     }
   }
   async function stopRecorder() {
-    await sendMessage({ type: "recorder.stop" });
+    const result = await sendMessage({ type: "recorder.stop" });
     setRecorder({ active: false });
+    setActiveRecorderSession(null);
+    await refreshRecorderSessions();
+    if (result.ok && result.session) {
+      setSessionsSurface("recorder");
+      setTab("sessions");
+      setSelectedRecorderSession(result.session);
+      dispatchRecorderNav({ type: "open_domain", domain: result.session.domain });
+      dispatchRecorderNav({ type: "open_session", sessionId: result.session.id });
+    }
+  }
+  const testPlanItems = (0, import_react5.useMemo)(() => {
+    if (!analysis) return [];
+    return [
+      ...analysis.test_plan.unit.map((t) => ({ ...t, type: "unit" })),
+      ...analysis.test_plan.integration.map((t) => ({ ...t, type: "integration" })),
+      ...analysis.test_plan.e2e.map((t) => ({ ...t, type: "e2e" }))
+    ];
+  }, [analysis]);
+  const scoreClass = analysis ? getRiskClass(analysis.risk_score) : "score-low";
+  const scoreLabel = analysis ? getRiskLabel(analysis.risk_score) : "";
+  function renderRecorderPanel() {
+    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { style: { marginBottom: 4 }, children: "UI Recorder" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-toolbar-meta", children: recorder.active ? "Live action log while recording. Stop to review and generate tests." : "Capture clicks, scrolls, typing, and navigation from the active page." })
+        ] }),
+        recorder.active ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "secondary", onClick: () => void stopRecorder(), children: "Stop & Review" }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+          Button,
+          {
+            variant: "secondary",
+            onClick: () => void startRecorder(),
+            disabled: settings.safeMode.enabled,
+            children: "Start Recording"
+          }
+        )
+      ] }),
+      recorder.active ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_jsx_runtime6.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live-shell", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live-summary", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-dot" }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "recorder-meta", children: [
+              "Recording ",
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "recorder-time", children: recordingTime }),
+              recorder.domain ? ` \xB7 ${recorder.domain}` : ""
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "status-chip-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              activeRecorderSession?.steps.length ?? 0,
+              " events"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              activeRecorderSession?.screenshotsCaptured ?? 0,
+              " screenshots"
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-live-log", children: liveRecorderSteps.length > 0 ? liveRecorderSteps.map((step) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live-item", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live-item-top", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: `recorder-action-chip recorder-action-${step.action}`, children: formatRecorderAction(step.action) }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "recorder-live-time", children: new Date(step.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-live-title", children: step.title }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-live-meta", children: formatRecorderStepMeta(step) })
+        ] }, step.id)) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-empty recorder-live-empty", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-title", children: "Waiting for actions" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-desc", children: "Click, scroll, type, or navigate on the current page and the log will update here." })
+        ] }) })
+      ] }) }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-idle-state", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-desc", children: "After you stop recording, DioTest opens a review screen with the captured page actions and generates manual cases from the kept steps." }) })
+    ] });
   }
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("main", { className: "app-shell", children: [
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("header", { className: "app-header", children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "brand-wrap", children: [
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h1", { className: "app-title", children: "DioTest" }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "app-subtitle", children: "AI-first analysis for PR/commit context" })
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "app-subtitle", children: "AI-first PR analysis" })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "brand-badge", children: "Community" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("nav", { className: "tab-row", "aria-label": "DioTest sections", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { className: "tab-pill", variant: tab === "review" ? "default" : "secondary", onClick: () => setTab("review"), children: "Review" }),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { className: "tab-pill", variant: tab === "sessions" ? "default" : "secondary", onClick: () => setTab("sessions"), children: "Sessions" }),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { className: "tab-pill", variant: tab === "settings" ? "default" : "secondary", onClick: () => setTab("settings"), children: "Settings" })
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+        Button,
+        {
+          className: "tab-pill",
+          variant: tab === "review" ? "default" : "ghost",
+          onClick: () => setTab("review"),
+          children: "Review"
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+        Button,
+        {
+          className: "tab-pill",
+          variant: tab === "sessions" ? "default" : "ghost",
+          onClick: () => setTab("sessions"),
+          children: "Sessions"
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+        Button,
+        {
+          className: "tab-pill",
+          variant: tab === "settings" ? "default" : "ghost",
+          onClick: () => setTab("settings"),
+          children: "Settings"
+        }
+      )
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "content-scroll", children: [
-      tab === "review" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "section-stack", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "control-bar panel-card", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "toggle-wrap", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "toggle-row", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Checkbox, { checked: includeDeepScan, onChange: (e) => setIncludeDeepScan(e.target.checked) }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: "Include Repo Deep Scan (GitHub API)" })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "toggle-help", children: "Recommended for better accuracy on large/truncated diffs. Deep Scan fetches full file context from GitHub API, improves evidence quality, and reduces false positives. For private repositories, add a GitHub token in Settings." })
+      tab === "review" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "section-stack", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "panel-card", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "analyze-bar", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "analyze-top-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+              Button,
+              {
+                className: "analyze-btn",
+                onClick: () => void runAnalysis(),
+                disabled: analyzing,
+                children: analyzing ? "Analyzing\u2026" : "Analyze PR / Commit"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+              "select",
+              {
+                className: "model-select",
+                value: settings.analysis.model,
+                onChange: (e) => void onChangeModel(e.target.value),
+                children: MODEL_OPTIONS.map(({ group, options }) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("optgroup", { label: group, children: options.map((m) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("option", { value: m, children: m }, m)) }, group))
+              }
+            )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "model-select-wrap", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: "Model" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("select", { value: settings.analysis.model, onChange: (e) => void onChangeModel(e.target.value), children: modelOptions.map((model) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("option", { value: model, children: model }, model)) })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { onClick: () => void runAnalysis(), disabled: analyzing, className: "analyze-btn", children: analyzing ? "Analyzing..." : "Analyze PR/Commit" })
-        ] }),
-        analyzeError ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: analyzeError }) : null,
-        analysis ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "deep-scan-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+              Checkbox,
+              {
+                checked: includeDeepScan,
+                onChange: (e) => setIncludeDeepScan(e.target.checked)
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "deep-scan-label", children: "Include deep scan" }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "deep-scan-hint", children: "+GitHub API context" })
+          ] })
+        ] }) }),
+        analyzeError && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: analyzeError }),
+        analyzing && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "panel-card", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "analyzing-state", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "spinner" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "analyzing-label", children: "Running analysis\u2026" })
+        ] }) }),
+        analysis && !analyzing && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "status-chip-row", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
               "Coverage: ",
@@ -29701,73 +30300,90 @@ function App() {
               debug?.request_inspector.analysis_quality ?? "full"
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
-              "Files sent: ",
+              "Files: ",
               debug?.request_inspector.files_sent_to_ai ?? 0
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
-              "Token est: ",
-              debug?.token_estimate ?? 0
+              "~",
+              debug?.token_estimate ?? 0,
+              " tokens"
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "Risk" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: "metric-line", children: [
-              "Score: ",
-              analysis.risk_score.toFixed(1),
-              " / 10"
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "risk-score-block", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: `risk-score-number ${scoreClass}`, children: analysis.risk_score.toFixed(1) }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "risk-score-meta", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "risk-score-label", children: scoreLabel }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "risk-score-bar", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                  "div",
+                  {
+                    className: `risk-score-fill ${scoreClass}`,
+                    style: { width: `${analysis.risk_score / 10 * 100}%` }
+                  }
+                ) })
+              ] })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "muted-wrap", children: "Interpretation: lower score means lower estimated regression risk." }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.risk_areas.map((risk, idx) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { className: "risk-item", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: `severity-badge severity-${risk.severity}`, children: risk.severity.toUpperCase() }),
-              " ",
-              risk.area,
+            debug?.risk_formula && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "trust-row", onClick: () => setIsTrustExpanded((v) => !v), children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "trust-label", children: "Why this score" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: `trust-pill trust-ai`, children: [
+                  "AI ",
+                  debug.risk_formula.ai_score.toFixed(1)
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "trust-sep", children: "+" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: `trust-pill trust-det`, children: [
+                  "Rules ",
+                  debug.risk_formula.deterministic_score.toFixed(1)
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "trust-arrow", children: isTrustExpanded ? "\u25B2" : "\u25BC" })
+              ] }),
+              isTrustExpanded && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "trust-drivers", children: debug.risk_formula.drivers.map((d, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "trust-driver", children: d }, i)) })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "risk-list", children: analysis.risk_areas.map((risk, idx) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "risk-item", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "risk-item-header", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: `severity-badge severity-${risk.severity}`, children: risk.severity.toUpperCase() }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "risk-area-name", children: risk.area })
+              ] }),
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "risk-why", children: risk.why }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "muted-wrap", children: risk.evidence_files.join(", ") })
+              risk.evidence_files.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "risk-files", children: risk.evidence_files.join(", ") })
             ] }, `${risk.area}-${idx}`)) })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "Test Plan" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "plan-grid", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "plan-group", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Unit" }),
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.test_plan.unit.map((t, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t.title }, `u-${i}`)) })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "plan-group", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Integration" }),
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.test_plan.integration.map((t, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t.title }, `i-${i}`)) })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "plan-group", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "E2E" }),
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.test_plan.e2e.map((t, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t.title }, `e-${i}`)) })
-              ] })
-            ] })
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "test-plan-list", children: testPlanItems.map((item, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "test-plan-item", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: `test-type-tag tag-${item.type}`, children: item.type === "e2e" ? "E2E" : item.type === "unit" ? "Unit" : "Integ." }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "test-item-title", children: item.title })
+            ] }, i)) })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "Manual Cases" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.manual_test_cases.map((tc) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { className: "risk-item", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("strong", { children: [
-                tc.id,
-                ":"
-              ] }),
-              " ",
-              tc.title,
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "risk-why", children: [
-                "Why this is suggested: ",
-                tc.why ?? "Suggested from changed-file risk context."
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "muted-wrap", children: [
-                "Evidence: ",
-                (tc.evidence_files ?? []).join(", ") || "No direct file evidence"
-              ] })
-            ] }, tc.id)) })
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-list", children: analysis.manual_test_cases.map((tc) => {
+              const why = tc.why;
+              const files = tc.evidence_files ?? [];
+              const copyContent = [
+                `**${tc.id}: ${tc.title}**`,
+                why && why !== "Suggested from changed-file risk context." ? `Why: ${why}` : "",
+                files.length ? `Evidence: ${files.join(", ")}` : ""
+              ].filter(Boolean).join("\n");
+              return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "manual-case", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "manual-case-header", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "manual-case-id", children: tc.id }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "manual-case-title", children: tc.title }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(CopyButton, { text: copyContent })
+                ] }),
+                why && why !== "Suggested from changed-file risk context." && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-case-why", children: why }),
+                files.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-case-files", children: files.join(", ") })
+              ] }, tc.id);
+            }) })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "Debug" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { style: { marginBottom: 0 }, children: "Debug" }),
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
                 Button,
                 {
-                  variant: "secondary",
+                  variant: "ghost",
                   "aria-expanded": isDebugExpanded,
                   onClick: () => {
                     setIsDebugExpanded((v) => {
@@ -29783,176 +30399,569 @@ function App() {
                 }
               )
             ] }),
-            debug ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-grid", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Mode:" }),
-                " ",
-                debug.request_inspector.mode
+            debug && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-grid", style: { marginTop: 10 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Mode" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: debug.request_inspector.mode })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Page:" }),
-                " ",
-                debug.request_inspector.page_type
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Source" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: debug.request_inspector.extraction_source })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Repo:" }),
-                " ",
-                debug.request_inspector.repo
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Files detected" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: debug.request_inspector.files_detected })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Ref:" }),
-                " ",
-                debug.request_inspector.ref
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Files sent" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: debug.request_inspector.files_sent_to_ai })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Files detected:" }),
-                " ",
-                debug.request_inspector.files_detected
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Files sent:" }),
-                " ",
-                debug.request_inspector.files_sent_to_ai
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Deep scan requested:" }),
-                " ",
-                String(debug.request_inspector.deep_scan_requested)
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Deep scan used:" }),
-                " ",
-                String(debug.request_inspector.deep_scan_used)
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Extraction source:" }),
-                " ",
-                debug.request_inspector.extraction_source
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Analysis quality:" }),
-                " ",
-                debug.request_inspector.analysis_quality
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Manual cases generated:" }),
-                " ",
-                debug.request_inspector.manual_cases_generated
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Manual cases kept:" }),
-                " ",
-                debug.request_inspector.manual_cases_kept
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Screenshots sent:" }),
-                " ",
-                String(debug.request_inspector.screenshots_sent)
-              ] })
-            ] }) : null,
-            debug?.warnings.length ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: debug.warnings.join(" | ") }) : null,
-            debug?.risk_formula ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "formula-card", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Risk Formula" }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: "muted-wrap", children: [
-                "AI ",
-                debug.risk_formula.ai_score.toFixed(1),
-                " \xB7 Deterministic ",
-                debug.risk_formula.deterministic_score.toFixed(1),
-                " \xB7 Final ",
-                debug.risk_formula.final_score.toFixed(1)
-              ] }),
-              debug.risk_formula.categories ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-grid", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Volume:" }),
-                  " ",
-                  debug.risk_formula.categories.volume.toFixed(1)
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Churn:" }),
-                  " ",
-                  debug.risk_formula.categories.churn.toFixed(1)
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Sensitive path impact:" }),
-                  " ",
-                  debug.risk_formula.categories.sensitive_path_impact.toFixed(1)
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Confidence penalties:" }),
-                  " ",
-                  debug.risk_formula.categories.confidence_penalties.toFixed(1)
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Cases kept" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "debug-val", children: [
+                  debug.request_inspector.manual_cases_kept,
+                  " / ",
+                  debug.request_inspector.manual_cases_generated
                 ] })
-              ] }) : null,
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: debug.risk_formula.drivers.map((driver, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: driver }, `${driver}-${index}`)) })
-            ] }) : null,
-            debug && debug.request_inspector.dropped_files_summary.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "formula-card", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Dropped Files" }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: debug.request_inspector.dropped_files_summary.map((item, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { children: [
-                item.path,
-                " (",
-                item.reason,
-                ")"
-              ] }, `${item.path}-${index}`)) })
-            ] }) : null,
-            debug && debug.request_inspector.normalization_flags_applied.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "formula-card", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Guardrails Applied" }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: debug.request_inspector.normalization_flags_applied.map((flag) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: flag }, flag)) })
-            ] }) : null,
-            isDebugExpanded && debug ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-sections", ref: debugDetailsRef, children: [
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Deep scan" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: String(debug.request_inspector.deep_scan_used) })
+              ] })
+            ] }),
+            debug?.warnings.length ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", style: { marginTop: 8 }, children: debug.warnings.join(" | ") }) : null,
+            isDebugExpanded && debug && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { marginTop: 10 }, ref: debugDetailsRef, children: [
+              debug.request_inspector.dropped_files_summary.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { marginBottom: 10 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "debug-key", style: { marginBottom: 6 }, children: "Dropped files" }),
+                debug.request_inspector.dropped_files_summary.map((item, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "trust-driver", children: [
+                  item.path,
+                  " \u2014 ",
+                  item.reason
+                ] }, i))
+              ] }),
+              debug.request_inspector.normalization_flags_applied.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { marginBottom: 10 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "debug-key", style: { marginBottom: 6 }, children: "Guardrails applied" }),
+                debug.request_inspector.normalization_flags_applied.map((flag, i) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "trust-driver", children: flag }, i))
+              ] }),
               /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Prompt Preview" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Prompt preview" }),
                 /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => setIsPromptExpanded((v) => !v), children: isPromptExpanded ? "Less" : "More" }),
                   /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "secondary", onClick: () => void copyText(debug.request_inspector.prompt_preview), children: "Copy" })
                 ] })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-                CodeViewer,
-                {
-                  value: debug.request_inspector.prompt_preview,
-                  language: "text",
-                  expanded: isPromptExpanded
-                }
-              ),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Context Summary" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(CodeViewer, { value: debug.request_inspector.prompt_preview, language: "text", expanded: isPromptExpanded }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", style: { marginTop: 10 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Context summary" }),
                 /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => setIsContextExpanded((v) => !v), children: isContextExpanded ? "Less" : "More" }),
                   /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "secondary", onClick: () => void copyText(debug.context_summary), children: "Copy" })
                 ] })
               ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(CodeViewer, { value: debug.context_summary, language: "text", expanded: isContextExpanded })
+            ] })
+          ] }),
+          renderRecorderPanel()
+        ] }),
+        !analysis && !analyzing && !analyzeError && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "panel-card", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "empty-state", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "empty-icon", children: "\u2B21" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "empty-title", children: "No analysis yet" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "empty-desc", children: "Open a GitHub PR or commit, then hit Analyze." })
+        ] }) }),
+        !analysis && !analyzing && renderRecorderPanel()
+      ] }),
+      tab === "sessions" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "section-stack", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-toolbar", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { style: { marginBottom: 4 }, children: "Sessions" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-toolbar-meta", children: sessionsSurface === "analysis" ? `${totalSavedRuns} saved analysis run${totalSavedRuns === 1 ? "" : "s"}` : `${recorderGroups.reduce((count, group) => count + group.sessionCount, 0)} recorded session${recorderGroups.reduce((count, group) => count + group.sessionCount, 0) === 1 ? "" : "s"}` })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions", children: [
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-                CodeViewer,
+                Button,
                 {
-                  value: debug.context_summary,
-                  language: "text",
-                  expanded: isContextExpanded
+                  className: "session-surface-toggle",
+                  variant: sessionsSurface === "analysis" ? "secondary" : "ghost",
+                  onClick: () => setSessionsSurface("analysis"),
+                  children: "Analysis"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  className: "session-surface-toggle",
+                  variant: sessionsSurface === "recorder" ? "secondary" : "ghost",
+                  onClick: () => setSessionsSurface("recorder"),
+                  children: "Recorder"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  variant: "secondary",
+                  onClick: () => void (sessionsSurface === "analysis" ? refreshSessions() : refreshRecorderSessions()),
+                  children: "Refresh"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  variant: "ghost",
+                  onClick: () => void (sessionsSurface === "analysis" ? clearAllSessions() : clearAllRecorderSessions()),
+                  disabled: sessionsSurface === "analysis" ? !totalSavedRuns : recorderGroups.length === 0,
+                  children: "Clear All"
                 }
               )
-            ] }) : null
-          ] })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "No Analysis Yet" }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "muted-wrap", children: "Run Analyze PR/Commit to generate risk, test plan, and manual test cases." })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "UI Recorder" }),
-          recorder.active ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
-              "\u25CF Recording ",
-              recordingTime,
-              " ",
-              recorder.domain ? `(${recorder.domain})` : ""
+            ] })
+          ] }),
+          sessionsSurface === "analysis" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-breadcrumb", children: [
+              "Sessions",
+              sessionsNav.selectedRepo ? ` / ${sessionsNav.selectedRepo}` : "",
+              selectedSession ? ` / ${selectedSession.ref}` : ""
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { onClick: () => void stopRecorder(), children: "Stop Recording" })
-          ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { onClick: () => void startRecorder(), disabled: settings.safeMode.enabled, children: "Start UI Recording" })
-        ] })
-      ] }) : null,
-      tab === "sessions" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "Sessions" }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "muted-wrap", children: "Session listing scaffold. Supports open/export/delete in next increment." })
-      ] }) : null,
-      tab === "settings" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("article", { className: "panel-card", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(SettingsPanel, { settings, onSaved: setSettings }) }) : null
+            sessionsError ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: sessionsError }) : null,
+            !sessionsError && totalSavedRuns === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-empty", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "empty-icon", children: "\u25EB" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-title", children: "No analysis sessions yet" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-desc", children: "Run Analyze in the Review tab and each result will be saved here automatically." })
+            ] }) : null,
+            !sessionsError && totalSavedRuns > 0 && sessionsNav.mode !== "repos" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-nav-row", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => dispatchSessionsNav({ type: "back" }), children: "Back" }),
+              sessionsNav.selectedRepo ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-nav-chip", children: sessionsNav.selectedRepo }) : null
+            ] }) : null,
+            !sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "repos" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-list", children: repoGroups.map((repo) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+              "button",
+              {
+                className: "sessions-row",
+                onClick: () => dispatchSessionsNav({ type: "open_repo", repo: repo.repo }),
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-top", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-title", children: repo.repo }),
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-chip", children: [
+                      repo.runCount,
+                      " run",
+                      repo.runCount === 1 ? "" : "s"
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-subtle", children: [
+                    "Last scanned ",
+                    new Date(repo.lastUpdatedAt).toLocaleString()
+                  ] })
+                ]
+              },
+              repo.repo
+            )) }) : null,
+            !sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "runs" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-list", children: runsForSelectedRepo.map((run) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("button", { className: "sessions-row", onClick: () => void openSession(run.id), children: [
+              cleanSessionTitle(run.title) ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-run-heading", children: cleanSessionTitle(run.title) }) : null,
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-run-line", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-title", children: run.pageType === "pull_request" ? `PR #${run.ref}` : run.ref.slice(0, 12) }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-chip", children: [
+                  "Score ",
+                  run.riskScore.toFixed(1)
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-subtle", children: new Date(run.createdAt).toLocaleString() })
+            ] }, run.id)) }) : null
+          ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-breadcrumb", children: [
+              "Recorder",
+              recorderNav.selectedDomain ? ` / ${recorderNav.selectedDomain}` : "",
+              selectedRecorderSession ? ` / ${selectedRecorderSession.name}` : ""
+            ] }),
+            recorderSessionsError ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: recorderSessionsError }) : null,
+            !recorderSessionsError && recorderGroups.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-empty", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "empty-icon", children: "\u25CE" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-title", children: "No recorder sessions yet" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-desc", children: "Start recording from the Review tab, then stop to open the step review flow here." })
+            ] }) : null,
+            !recorderSessionsError && recorderGroups.length > 0 && recorderNav.mode !== "domains" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-nav-row", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => dispatchRecorderNav({ type: "back" }), children: "Back" }),
+              recorderNav.selectedDomain ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-nav-chip", children: recorderNav.selectedDomain }) : null
+            ] }) : null,
+            !recorderSessionsError && recorderGroups.length > 0 && recorderNav.mode === "domains" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-list", children: recorderGroups.map((group) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+              "button",
+              {
+                className: "sessions-row",
+                onClick: () => dispatchRecorderNav({ type: "open_domain", domain: group.domain }),
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-top", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-title", children: group.domain }),
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-chip", children: [
+                      group.sessionCount,
+                      " session",
+                      group.sessionCount === 1 ? "" : "s"
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-subtle", children: [
+                    "Last recorded ",
+                    new Date(group.lastUpdatedAt).toLocaleString()
+                  ] })
+                ]
+              },
+              group.domain
+            )) }) : null,
+            !recorderSessionsError && recorderGroups.length > 0 && recorderNav.mode === "sessions" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-list", children: recorderSessionsForSelectedDomain.map((session) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("button", { className: "sessions-row", onClick: () => void openRecorderSession(session.id), children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-run-heading", children: session.name }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-run-line", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-title", children: formatRecorderStatus(session.status) }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-chip", children: [
+                  session.steps.length,
+                  " step",
+                  session.steps.length === 1 ? "" : "s"
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-subtle", children: new Date(session.startedAt).toLocaleString() })
+            ] }, session.id)) }) : null
+          ] })
+        ] }),
+        sessionsSurface === "analysis" && !sessionsError && sessionsNav.mode === "detail" && selectedSession ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { style: { marginBottom: 4 }, children: cleanSessionTitle(selectedSession.title) ?? "Saved Run" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-toolbar-meta", children: [
+                selectedSession.repo,
+                " / ",
+                selectedSession.ref
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => void deleteRepoThread(selectedSession.repo), children: "Delete Repo" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => void deleteRun(selectedSession.id), children: "Delete Run" })
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "status-chip-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              "Score: ",
+              selectedSession.riskScore.toFixed(1)
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: `chip quality-${selectedSession.analysisQuality}`, children: [
+              "Quality: ",
+              selectedSession.analysisQuality
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              "Coverage: ",
+              selectedSession.coverageLevel
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "chip", children: selectedSession.pageType === "pull_request" ? "PR" : "Commit" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-detail-meta", children: [
+            "Scanned ",
+            new Date(selectedSession.createdAt).toLocaleString()
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-detail-section", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Risk Areas" }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "risk-list", children: selectedSession.riskAreas.map((risk, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "risk-item", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "risk-item-header", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: `severity-badge severity-${risk.severity}`, children: risk.severity.toUpperCase() }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "risk-area-name", children: risk.area })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "risk-why", children: risk.why }),
+              risk.evidence_files.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "risk-files", children: risk.evidence_files.join(", ") }) : null
+            ] }, `${risk.area}-${index}`)) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-detail-section", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Test Plan" }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "test-plan-list", children: [
+              selectedSession.testPlan.unit.map((item, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "test-plan-item", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "test-type-tag tag-unit", children: "Unit" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "test-item-title", children: item.title })
+              ] }, `session-unit-${index}`)),
+              selectedSession.testPlan.integration.map((item, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "test-plan-item", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "test-type-tag tag-integration", children: "Integ." }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "test-item-title", children: item.title })
+              ] }, `session-int-${index}`)),
+              selectedSession.testPlan.e2e.map((item, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "test-plan-item", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "test-type-tag tag-e2e", children: "E2E" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "test-item-title", children: item.title })
+              ] }, `session-e2e-${index}`))
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-detail-section", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Manual Cases" }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-list", children: selectedSession.manualTestCases.map((testCase) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "manual-case", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "manual-case-header", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "manual-case-id", children: testCase.id }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "manual-case-title", children: testCase.title })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-case-why", children: testCase.why }),
+              testCase.evidence_files.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-case-files", children: testCase.evidence_files.join(", ") }) : null
+            ] }, testCase.id)) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-detail-section", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Debug" }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-grid", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Files detected" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedSession.debug.filesDetected })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Files sent" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedSession.debug.filesSent })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Deep scan" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: String(selectedSession.debug.deepScanUsed) })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Source" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedSession.debug.extractionSource })
+              ] })
+            ] }),
+            selectedSession.debug.warnings.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: selectedSession.debug.warnings.join(" | ") }) : null
+          ] })
+        ] }) : null,
+        sessionsSurface === "recorder" && !recorderSessionsError && recorderNav.mode === "detail" && selectedRecorderSession ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "panel-card", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-detail-shell", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-detail-header", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-detail-titleblock", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { style: { marginBottom: 4 }, children: selectedRecorderSession.name }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-toolbar-meta", children: selectedRecorderSession.domain })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions recorder-detail-actions", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => dispatchRecorderNav({ type: "back" }), children: "Back" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  variant: "ghost",
+                  onClick: () => void saveRecorderReview(true),
+                  disabled: recorderRequestState === "saving_review" || recorderRequestState === "generating",
+                  children: recorderRequestState === "saving_review" ? "Saving\u2026" : "Save Review"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  variant: "secondary",
+                  onClick: () => void generateRecorderOutputs(),
+                  disabled: selectedRecorderSession.steps.filter((step) => step.kept).length === 0 || recorderRequestState === "saving_review" || recorderRequestState === "generating",
+                  children: getRecorderGenerateLabel(recorderRequestState)
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  variant: "ghost",
+                  onClick: () => void deleteRecorderSession(selectedRecorderSession.id),
+                  disabled: recorderRequestState === "saving_review" || recorderRequestState === "generating",
+                  children: "Delete"
+                }
+              )
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "status-chip-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "chip", children: formatRecorderStatus(selectedRecorderSession.status) }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              selectedRecorderSession.steps.length,
+              " steps"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              selectedRecorderSession.steps.filter((step) => step.kept).length,
+              " kept"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              selectedRecorderSession.screenshotsCaptured,
+              " screenshots"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              selectedRecorderSession.pageSummaries?.length ?? 0,
+              " page summaries"
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-detail-meta", children: [
+            "Started ",
+            new Date(selectedRecorderSession.startedAt).toLocaleString(),
+            selectedRecorderSession.stoppedAt ? ` \xB7 Stopped ${new Date(selectedRecorderSession.stoppedAt).toLocaleString()}` : ""
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-detail-tabs", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+              "button",
+              {
+                className: `recorder-detail-tab${recorderDetailTab === "overview" ? " active" : ""}`,
+                onClick: () => setRecorderDetailTab("overview"),
+                children: "Overview"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+              "button",
+              {
+                className: `recorder-detail-tab${recorderDetailTab === "steps" ? " active" : ""}`,
+                onClick: () => setRecorderDetailTab("steps"),
+                children: "Steps"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+              "button",
+              {
+                className: `recorder-detail-tab${recorderDetailTab === "results" ? " active" : ""}`,
+                onClick: () => setRecorderDetailTab("results"),
+                children: "Results"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-generate-controls", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "checkbox-field recorder-generate-option", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Checkbox,
+                {
+                  checked: recorderGenerationOptions.includeVision,
+                  onChange: (e) => setRecorderGenerationOptions((current) => ({ ...current, includeVision: e.target.checked })),
+                  disabled: recorderRequestState === "saving_review" || recorderRequestState === "generating"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "checkbox-field-body", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "checkbox-field-label", children: "Analyze screenshots" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "checkbox-field-desc", children: "Use screenshot pixels to understand visible UI state during generation." })
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "checkbox-field recorder-generate-option", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Checkbox,
+                {
+                  checked: recorderGenerationOptions.includePageSummaries,
+                  onChange: (e) => setRecorderGenerationOptions((current) => ({ ...current, includePageSummaries: e.target.checked })),
+                  disabled: recorderRequestState === "saving_review" || recorderRequestState === "generating"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "checkbox-field-body", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "checkbox-field-label", children: "Include page summaries" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "checkbox-field-desc", children: "Pass a lightweight visible-UI summary for each captured page in the flow." })
+              ] })
+            ] })
+          ] }),
+          recorderRequestState === "generating" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-request-banner", children: "Generating outputs from reviewed steps, screenshots, and page summaries\u2026" }) : null,
+          recorderDetailTab === "overview" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-detail-section", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-overview-grid", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-overview-metrics", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-grid recorder-metric-grid", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Status" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: formatRecorderStatus(selectedRecorderSession.status) })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Steps" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.steps.length })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Kept" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.steps.filter((step) => step.kept).length })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Screenshots" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.screenshotsCaptured })
+                ] })
+              ] }),
+              selectedRecorderSession.warnings.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: selectedRecorderSession.warnings.join(" | ") }) : null
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-url-stack", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(UrlCard, { label: "Start URL", value: selectedRecorderSession.startUrl }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(UrlCard, { label: "Last URL", value: selectedRecorderSession.lastUrl })
+            ] })
+          ] }) }) : null,
+          recorderDetailTab === "steps" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-detail-section", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Reviewed Steps" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-toolbar-meta", children: "Cleaner labels and reduced noise are already applied here." })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-step-list", children: selectedRecorderSession.steps.map((step, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: `recorder-step-card${step.kept ? "" : " recorder-step-card-muted"}`, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-step-top", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "recorder-step-index", children: index + 1 }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "recorder-step-keep", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                    Checkbox,
+                    {
+                      checked: step.kept,
+                      onChange: (e) => {
+                        setSelectedRecorderSession((current) => current ? {
+                          ...current,
+                          steps: current.steps.map((item) => item.id === step.id ? { ...item, kept: e.target.checked } : item)
+                        } : current);
+                      }
+                    }
+                  ),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: "Keep" })
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                "input",
+                {
+                  className: "dt-input",
+                  value: step.title,
+                  onChange: (e) => {
+                    const value = e.target.value;
+                    setSelectedRecorderSession((current) => current ? {
+                      ...current,
+                      steps: current.steps.map((item) => item.id === step.id ? { ...item, title: value } : item)
+                    } : current);
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-step-meta", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: formatRecorderAction(step.action) }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: new Date(step.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) }),
+                step.selector ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: step.selector }) : null,
+                step.url ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: getRecorderUrlLabel(step.url) }) : null
+              ] }),
+              step.screenshot ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("img", { className: "recorder-step-image", src: step.screenshot.dataUrl, alt: step.title }) : null
+            ] }, step.id)) })
+          ] }) : null,
+          recorderDetailTab === "results" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-detail-section", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-results-summary", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-grid recorder-metric-grid", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Manual cases" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.generated?.manual_test_cases.length ?? 0 })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Scenario steps" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.generated?.playwright_scenario.steps.length ?? 0 })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Flow-derived" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.generated?.manual_test_cases.filter((testCase) => testCase.source === "flow").length ?? 0 })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Page-derived" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.generated?.manual_test_cases.filter((testCase) => testCase.source === "page").length ?? 0 })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Vision" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.lastGenerationOptions?.includeVision ? "on" : "off" })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Page summaries" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.lastGenerationOptions?.includePageSummaries !== false ? "on" : "off" })
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-toolbar-meta", children: "Generated outputs now combine recorded-flow cases with additional visited-page opportunities from page summaries and screenshots." })
+            ] }),
+            selectedRecorderSession.generated ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-generated-block", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Manual Cases" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-list", children: selectedRecorderSession.generated.manual_test_cases.map((testCase) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "manual-case", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "manual-case-header", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "manual-case-id", children: testCase.id }),
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "manual-case-title", children: testCase.title }),
+                    testCase.source ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "sessions-row-chip", children: testCase.source }) : null
+                  ] }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-case-why", children: testCase.why }),
+                  testCase.evidence_files.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-case-files", children: testCase.evidence_files.join(", ") }) : null,
+                  testCase.steps.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-generated-list", children: testCase.steps.map((item, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "trust-driver", children: item }, `${testCase.id}-step-${index}`)) }) : null
+                ] }, testCase.id)) })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-generated-block", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Playwright Scenario" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-generated-title", children: selectedRecorderSession.generated.playwright_scenario.title }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-generated-goal", children: selectedRecorderSession.generated.playwright_scenario.goal }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-generated-list", children: selectedRecorderSession.generated.playwright_scenario.steps.map((step, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "trust-driver", children: [step.action, step.target, step.assertion].filter(Boolean).join(" | ") }, `${step.action}-${index}`)) })
+              ] })
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-empty recorder-results-empty", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-title", children: "No generated outputs yet" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-desc", children: "Save your reviewed steps, then generate manual cases and a Playwright scenario from this flow." })
+            ] })
+          ] }) : null
+        ] }) }) : null
+      ] }),
+      tab === "settings" && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "panel-card", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(SettingsPanel, { settings, onSaved: setSettings }) })
     ] })
   ] });
 }

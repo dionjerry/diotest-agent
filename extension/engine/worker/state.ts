@@ -1,14 +1,9 @@
 import { ERROR_CODES } from "../errors/codes";
+import type { RecorderActiveState } from "../recorder/types";
 
 const RECORDER_STATE_KEY = "diotest.recorder.state";
 
-export interface RecorderState {
-  active: boolean;
-  startedAt: string;
-  sessionId: string;
-  tabId: number;
-  domain: string;
-}
+export interface RecorderState extends RecorderActiveState {}
 
 export async function persistRecorderState(state: RecorderState): Promise<void> {
   await chrome.storage.local.set({ [RECORDER_STATE_KEY]: state });
