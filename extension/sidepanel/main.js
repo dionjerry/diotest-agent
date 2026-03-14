@@ -29676,9 +29676,12 @@ function App() {
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "content-scroll", children: [
       tab === "review" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "section-stack", children: [
         /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "control-bar panel-card", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "toggle-row", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Checkbox, { checked: includeDeepScan, onChange: (e) => setIncludeDeepScan(e.target.checked) }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: "Include Repo Deep Scan (GitHub API)" })
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "toggle-wrap", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "toggle-row", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Checkbox, { checked: includeDeepScan, onChange: (e) => setIncludeDeepScan(e.target.checked) }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: "Include Repo Deep Scan (GitHub API)" })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "toggle-help", children: "Recommended for better accuracy on large/truncated diffs. Deep Scan fetches full file context from GitHub API, improves evidence quality, and reduces false positives. For private repositories, add a GitHub token in Settings." })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "model-select-wrap", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: "Model" }),
@@ -29692,6 +29695,10 @@ function App() {
             /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
               "Coverage: ",
               analysis.meta.coverage_level
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: `chip quality-${debug?.request_inspector.analysis_quality ?? "full"}`, children: [
+              "Quality: ",
+              debug?.request_inspector.analysis_quality ?? "full"
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
               "Files sent: ",
@@ -29709,6 +29716,7 @@ function App() {
               analysis.risk_score.toFixed(1),
               " / 10"
             ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "muted-wrap", children: "Interpretation: lower score means lower estimated regression risk." }),
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.risk_areas.map((risk, idx) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { className: "risk-item", children: [
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: `severity-badge severity-${risk.severity}`, children: risk.severity.toUpperCase() }),
               " ",
@@ -29736,13 +29744,21 @@ function App() {
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "Manual Cases" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.manual_test_cases.map((tc) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: analysis.manual_test_cases.map((tc) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { className: "risk-item", children: [
               /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("strong", { children: [
                 tc.id,
                 ":"
               ] }),
               " ",
-              tc.title
+              tc.title,
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "risk-why", children: [
+                "Why this is suggested: ",
+                tc.why ?? "Suggested from changed-file risk context."
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "muted-wrap", children: [
+                "Evidence: ",
+                (tc.evidence_files ?? []).join(", ") || "No direct file evidence"
+              ] })
             ] }, tc.id)) })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
@@ -29809,6 +29825,26 @@ function App() {
                 String(debug.request_inspector.deep_scan_used)
               ] }),
               /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Extraction source:" }),
+                " ",
+                debug.request_inspector.extraction_source
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Analysis quality:" }),
+                " ",
+                debug.request_inspector.analysis_quality
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Manual cases generated:" }),
+                " ",
+                debug.request_inspector.manual_cases_generated
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Manual cases kept:" }),
+                " ",
+                debug.request_inspector.manual_cases_kept
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
                 /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Screenshots sent:" }),
                 " ",
                 String(debug.request_inspector.screenshots_sent)
@@ -29825,7 +29861,42 @@ function App() {
                 " \xB7 Final ",
                 debug.risk_formula.final_score.toFixed(1)
               ] }),
+              debug.risk_formula.categories ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-grid", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Volume:" }),
+                  " ",
+                  debug.risk_formula.categories.volume.toFixed(1)
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Churn:" }),
+                  " ",
+                  debug.risk_formula.categories.churn.toFixed(1)
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Sensitive path impact:" }),
+                  " ",
+                  debug.risk_formula.categories.sensitive_path_impact.toFixed(1)
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: "Confidence penalties:" }),
+                  " ",
+                  debug.risk_formula.categories.confidence_penalties.toFixed(1)
+                ] })
+              ] }) : null,
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: debug.risk_formula.drivers.map((driver, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: driver }, `${driver}-${index}`)) })
+            ] }) : null,
+            debug && debug.request_inspector.dropped_files_summary.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "formula-card", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Dropped Files" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: debug.request_inspector.dropped_files_summary.map((item, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { children: [
+                item.path,
+                " (",
+                item.reason,
+                ")"
+              ] }, `${item.path}-${index}`)) })
+            ] }) : null,
+            debug && debug.request_inspector.normalization_flags_applied.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "formula-card", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Guardrails Applied" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: debug.request_inspector.normalization_flags_applied.map((flag) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: flag }, flag)) })
             ] }) : null,
             isDebugExpanded && debug ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-sections", ref: debugDetailsRef, children: [
               /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [

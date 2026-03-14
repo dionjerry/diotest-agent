@@ -11,7 +11,17 @@ describe("analysis schema validator", () => {
         integration: [{ title: "i", evidence_files: ["x.ts"] }],
         e2e: [{ title: "e", evidence_files: ["x.ts"] }]
       },
-      manual_test_cases: [{ id: "TC-1", title: "t", preconditions: [], steps: ["1"], expected: ["ok"] }]
+      manual_test_cases: [
+        {
+          id: "TC-1",
+          title: "t",
+          why: "changed runtime behavior",
+          evidence_files: ["x.ts"],
+          preconditions: [],
+          steps: ["1"],
+          expected: ["ok"]
+        }
+      ]
     };
 
     expect(isValidAiAnalysisResult(payload)).toBe(true);

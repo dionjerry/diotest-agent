@@ -7,9 +7,12 @@ DioTest is a local-first AI testing assistant currently delivered as a Manifest 
 What works today:
 
 - PR/commit context extraction from GitHub pages.
+- Deterministic fallback path: DOM extraction -> GitHub API deep scan -> explicit partial mode.
 - AI-first test planning with deterministic + AI blended risk scoring.
 - Structured outputs for risk areas, test plan, and manual test cases.
+- Manual cases include explicit rationale (`why`) and evidence files, with strict anti-generic guardrails.
 - Debug inspector with context coverage and risk-formula breakdown.
+- Debug diagnostics include extraction source, analysis quality, dropped files, and normalization flags.
 - Safe-mode and validated settings persisted in `chrome.storage.local`.
 
 ## Why DioTest

@@ -28,7 +28,8 @@ describe("pr parser", () => {
       url: "https://github.com/acme/api/pull/9",
       title: "  Improve auth  ",
       description: "  desc  ",
-      changedFiles: [" src/a.ts ", "src/a.ts", "src/b.ts"]
+      changedFiles: [" src/a.ts ", "src/a.ts", "src/b.ts"],
+      extractionSource: "api"
     });
 
     expect(context.repo).toBe("acme/api");
@@ -37,6 +38,7 @@ describe("pr parser", () => {
     expect(context.title).toBe("Improve auth");
     expect(context.description).toBe("desc");
     expect(context.changedFiles).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(context.extractionSource).toBe("api");
   });
 
   it("parses and normalizes commit URL", () => {

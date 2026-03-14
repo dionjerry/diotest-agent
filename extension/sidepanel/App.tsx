@@ -196,10 +196,16 @@ export default function App() {
         {tab === "review" ? (
           <section className="section-stack">
             <div className="control-bar panel-card">
-              <label className="toggle-row">
-                <Checkbox checked={includeDeepScan} onChange={(e) => setIncludeDeepScan(e.target.checked)} />
-                <span>Include Repo Deep Scan (GitHub API)</span>
-              </label>
+              <div className="toggle-wrap">
+                <label className="toggle-row">
+                  <Checkbox checked={includeDeepScan} onChange={(e) => setIncludeDeepScan(e.target.checked)} />
+                  <span>Include Repo Deep Scan (GitHub API)</span>
+                </label>
+                <p className="toggle-help">
+                  Recommended for better accuracy on large/truncated diffs. Deep Scan fetches full file context from GitHub API, improves
+                  evidence quality, and reduces false positives. For private repositories, add a GitHub token in Settings.
+                </p>
+              </div>
               <label className="model-select-wrap">
                 <span>Model</span>
                 <select value={settings.analysis.model} onChange={(e) => void onChangeModel(e.target.value)}>
@@ -219,6 +225,9 @@ export default function App() {
               <>
                 <div className="status-chip-row">
                   <span className="chip">Coverage: {analysis.meta.coverage_level}</span>
+                  <span className={`chip quality-${debug?.request_inspector.analysis_quality ?? "full"}`}>
+                    Quality: {debug?.request_inspector.analysis_quality ?? "full"}
+                  </span>
                   <span className="chip">Files sent: {debug?.request_inspector.files_sent_to_ai ?? 0}</span>
                   <span className="chip">Token est: {debug?.token_estimate ?? 0}</span>
                 </div>
@@ -226,6 +235,7 @@ export default function App() {
                 <article className="panel-card">
                   <h3>Risk</h3>
                   <p className="metric-line">Score: {analysis.risk_score.toFixed(1)} / 10</p>
+                  <p className="muted-wrap">Interpretation: lower score means lower estimated regression risk.</p>
                   <ul className="clean-list">
                     {analysis.risk_areas.map((risk, idx) => (
                       <li key={`${risk.area}-${idx}`} className="risk-item">
@@ -259,7 +269,15 @@ export default function App() {
                   <h3>Manual Cases</h3>
                   <ul className="clean-list">
                     {analysis.manual_test_cases.map((tc) => (
-                      <li key={tc.id}><strong>{tc.id}:</strong> {tc.title}</li>
+                      <li key={tc.id} className="risk-item">
+                        <strong>{tc.id}:</strong> {tc.title}
+                        <div className="risk-why">
+                          Why this is suggested: {(tc as { why?: string }).why ?? "Suggested from changed-file risk context."}
+                        </div>
+                        <div className="muted-wrap">
+                          Evidence: {((tc as { evidence_files?: string[] }).evidence_files ?? []).join(", ") || "No direct file evidence"}
+                        </div>
+                      </li>
                     ))}
                   </ul>
                 </article>
@@ -295,6 +313,10 @@ export default function App() {
                       <p><strong>Files sent:</strong> {debug.request_inspector.files_sent_to_ai}</p>
                       <p><strong>Deep scan requested:</strong> {String(debug.request_inspector.deep_scan_requested)}</p>
                       <p><strong>Deep scan used:</strong> {String(debug.request_inspector.deep_scan_used)}</p>
+                      <p><strong>Extraction source:</strong> {debug.request_inspector.extraction_source}</p>
+                      <p><strong>Analysis quality:</strong> {debug.request_inspector.analysis_quality}</p>
+                      <p><strong>Manual cases generated:</strong> {debug.request_inspector.manual_cases_generated}</p>
+                      <p><strong>Manual cases kept:</strong> {debug.request_inspector.manual_cases_kept}</p>
                       <p><strong>Screenshots sent:</strong> {String(debug.request_inspector.screenshots_sent)}</p>
                     </div>
                   ) : null}
@@ -307,9 +329,39 @@ export default function App() {
                       <p className="muted-wrap">
                         AI {debug.risk_formula.ai_score.toFixed(1)} · Deterministic {debug.risk_formula.deterministic_score.toFixed(1)} · Final {debug.risk_formula.final_score.toFixed(1)}
                       </p>
+                      {debug.risk_formula.categories ? (
+                        <div className="debug-grid">
+                          <p><strong>Volume:</strong> {debug.risk_formula.categories.volume.toFixed(1)}</p>
+                          <p><strong>Churn:</strong> {debug.risk_formula.categories.churn.toFixed(1)}</p>
+                          <p><strong>Sensitive path impact:</strong> {debug.risk_formula.categories.sensitive_path_impact.toFixed(1)}</p>
+                          <p><strong>Confidence penalties:</strong> {debug.risk_formula.categories.confidence_penalties.toFixed(1)}</p>
+                        </div>
+                      ) : null}
                       <ul className="clean-list">
                         {debug.risk_formula.drivers.map((driver, index) => (
                           <li key={`${driver}-${index}`}>{driver}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {debug && debug.request_inspector.dropped_files_summary.length > 0 ? (
+                    <div className="formula-card">
+                      <h4>Dropped Files</h4>
+                      <ul className="clean-list">
+                        {debug.request_inspector.dropped_files_summary.map((item, index) => (
+                          <li key={`${item.path}-${index}`}>{item.path} ({item.reason})</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {debug && debug.request_inspector.normalization_flags_applied.length > 0 ? (
+                    <div className="formula-card">
+                      <h4>Guardrails Applied</h4>
+                      <ul className="clean-list">
+                        {debug.request_inspector.normalization_flags_applied.map((flag) => (
+                          <li key={flag}>{flag}</li>
                         ))}
                       </ul>
                     </div>

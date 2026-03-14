@@ -7,6 +7,7 @@ export interface PrContext {
   description: string;
   changedFiles: string[];
   url: string;
+  extractionSource?: "dom" | "api" | "partial";
 }
 
 export interface RawPrContext {
@@ -18,6 +19,7 @@ export interface RawPrContext {
   description?: string;
   changedFiles?: string[];
   url?: string;
+  extractionSource?: "dom" | "api" | "partial";
 }
 
 export interface PrExtractSuccess {

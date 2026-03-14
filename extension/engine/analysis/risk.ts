@@ -7,6 +7,12 @@ export interface RiskFormulaBreakdown {
   ai_score: number;
   final_score: number;
   drivers: string[];
+  categories?: {
+    volume: number;
+    churn: number;
+    sensitive_path_impact: number;
+    confidence_penalties: number;
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -40,28 +46,45 @@ function isTestFile(path: string): boolean {
 export function computeDeterministicRiskScore(
   context: ExtractionContext,
   options: { coverage: CoverageLevel; trimmed: boolean }
-): { score: number; drivers: string[] } {
+): {
+  score: number;
+  drivers: string[];
+  categories: {
+    volume: number;
+    churn: number;
+    sensitive_path_impact: number;
+    confidence_penalties: number;
+  };
+} {
   const fileCount = context.files.length;
   const changedLines = context.files.reduce((acc, file) => acc + changedLinesFromPatch(file.patch), 0);
   const paths = context.files.map((f) => f.path);
   const drivers: string[] = [];
+  const categories = {
+    volume: 0,
+    churn: 0,
+    sensitive_path_impact: 0,
+    confidence_penalties: 0
+  };
 
   let score = 0.8; // baseline change risk
 
   // File volume
-  if (fileCount <= 5) score += 0.6;
-  else if (fileCount <= 15) score += 1.2;
-  else if (fileCount <= 30) score += 1.9;
-  else if (fileCount <= 60) score += 2.6;
-  else score += 3.2;
+  if (fileCount <= 5) categories.volume += 0.6;
+  else if (fileCount <= 15) categories.volume += 1.2;
+  else if (fileCount <= 30) categories.volume += 1.9;
+  else if (fileCount <= 60) categories.volume += 2.6;
+  else categories.volume += 3.2;
+  score += categories.volume;
   if (fileCount > 0) drivers.push(`File volume: ${fileCount} files`);
 
   // Diff volume
-  if (changedLines <= 100) score += 0.4;
-  else if (changedLines <= 400) score += 0.9;
-  else if (changedLines <= 1200) score += 1.5;
-  else if (changedLines <= 3000) score += 2.1;
-  else score += 2.8;
+  if (changedLines <= 100) categories.churn += 0.4;
+  else if (changedLines <= 400) categories.churn += 0.9;
+  else if (changedLines <= 1200) categories.churn += 1.5;
+  else if (changedLines <= 3000) categories.churn += 2.1;
+  else categories.churn += 2.8;
+  score += categories.churn;
   if (changedLines > 0) drivers.push(`Code churn: ${changedLines} changed lines`);
 
   // Sensitive surfaces
@@ -86,7 +109,8 @@ export function computeDeterministicRiskScore(
     sensitive += 1.0;
     drivers.push("Sensitive surface: API/service paths");
   }
-  score += clamp(sensitive, 0, 3.2);
+  categories.sensitive_path_impact += clamp(sensitive, 0, 3.2);
+  score += categories.sensitive_path_impact;
 
   // Test coverage modifier
   const codeFileCount = paths.filter(isCodeFile).length;
@@ -102,27 +126,36 @@ export function computeDeterministicRiskScore(
   // Uncertainty and extraction confidence
   if (options.trimmed) {
     score += 0.7;
+    categories.confidence_penalties += 0.7;
     drivers.push("Context trimmed by token budget");
   }
   if (options.coverage === "partial") {
     score += 0.5;
+    categories.confidence_penalties += 0.5;
     drivers.push("Partial deep-scan coverage");
   }
   if (fileCount === 0) {
     score += 0.8;
+    categories.confidence_penalties += 0.8;
     drivers.push("No file context extracted");
   }
 
   return {
     score: round1(clamp(score, 0, 10)),
-    drivers
+    drivers,
+    categories: {
+      volume: round1(categories.volume),
+      churn: round1(categories.churn),
+      sensitive_path_impact: round1(categories.sensitive_path_impact),
+      confidence_penalties: round1(categories.confidence_penalties)
+    }
   };
 }
 
 export function blendRiskScores(aiScore: number, deterministicScore: number): number {
-  const weighted = aiScore * 0.4 + deterministicScore * 0.6;
-  const floorFromDeterministic = deterministicScore - 0.8;
+  const stabilizedAiScore = clamp(aiScore, deterministicScore - 2.5, deterministicScore + 2.5);
+  const weighted = stabilizedAiScore * 0.45 + deterministicScore * 0.55;
+  const floorFromDeterministic = deterministicScore - 1.0;
   const final = Math.max(weighted, floorFromDeterministic);
   return round1(clamp(final, 0, 10));
 }
-

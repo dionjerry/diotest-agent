@@ -17,18 +17,44 @@ function textFromSelectors(selectors: string[]): string {
 
 function getChangedFiles(): string[] {
   const paths = new Set<string>();
+  const add = (value: string | null | undefined) => {
+    const path = value?.trim();
+    if (!path) return;
+    if (!path.includes("/") && !path.includes(".")) return;
+    paths.add(path.replace(/\s+/g, " "));
+  };
+
   document.querySelectorAll<HTMLElement>("[data-path]").forEach((el) => {
-    const path = el.getAttribute("data-path")?.trim();
-    if (path) paths.add(path);
+    add(el.getAttribute("data-path"));
   });
+
+  document.querySelectorAll<HTMLElement>("[data-tagsearch-path]").forEach((el) => {
+    add(el.getAttribute("data-tagsearch-path"));
+  });
+
+  document.querySelectorAll<HTMLElement>(".file-info a.Link--primary, .file-header a.Link--primary").forEach((el) => {
+    add(el.getAttribute("title"));
+    add(el.textContent);
+  });
+
   document.querySelectorAll<HTMLElement>("[data-testid='diff-file-name']").forEach((el) => {
-    const path = el.textContent?.trim();
-    if (path) paths.add(path);
+    add(el.textContent);
   });
+
   document.querySelectorAll<HTMLAnchorElement>("a[href*='/files#diff-']").forEach((el) => {
-    const path = el.textContent?.trim();
-    if (path && path.includes("/")) paths.add(path);
+    add(el.textContent);
+    add(el.getAttribute("title"));
   });
+
+  document.querySelectorAll<HTMLAnchorElement>("a[href*='#diff-']").forEach((el) => {
+    add(el.textContent);
+    add(el.getAttribute("title"));
+  });
+
+  document.querySelectorAll<HTMLElement>("[title][data-hovercard-type='blob']").forEach((el) => {
+    add(el.getAttribute("title"));
+  });
+
   return Array.from(paths);
 }
 
@@ -69,7 +95,8 @@ function extractPrContext(): PrExtractResult {
     title,
     description,
     changedFiles: getChangedFiles(),
-    url
+    url,
+    extractionSource: "dom"
   });
 
   return { ok: true, context: normalized };
