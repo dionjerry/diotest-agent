@@ -29561,8 +29561,16 @@ function App() {
   const [isDebugExpanded, setIsDebugExpanded] = (0, import_react5.useState)(false);
   const [isPromptExpanded, setIsPromptExpanded] = (0, import_react5.useState)(false);
   const [isContextExpanded, setIsContextExpanded] = (0, import_react5.useState)(false);
+  const [sessionThreads, setSessionThreads] = (0, import_react5.useState)([]);
+  const [sessionsError, setSessionsError] = (0, import_react5.useState)(null);
+  const [expandedThreads, setExpandedThreads] = (0, import_react5.useState)({});
+  const [selectedSession, setSelectedSession] = (0, import_react5.useState)(null);
   const debugDetailsRef = (0, import_react5.useRef)(null);
   const modelOptions = ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"];
+  const totalSavedRuns = (0, import_react5.useMemo)(
+    () => sessionThreads.reduce((total, thread) => total + thread.runCount, 0),
+    [sessionThreads]
+  );
   (0, import_react5.useEffect)(() => {
     void (async () => {
       const loaded = await sendMessage({ type: "settings.load" });
@@ -29587,6 +29595,7 @@ function App() {
       if (intent) {
         await chrome.storage.local.remove("diotest.ui.intent");
       }
+      await refreshSessions();
     })();
   }, []);
   (0, import_react5.useEffect)(() => {
@@ -29600,6 +29609,49 @@ function App() {
     }
   }, [isDebugExpanded]);
   const recordingTime = (0, import_react5.useMemo)(() => recorder.startedAt ? formatElapsed(recorder.startedAt) : "00:00", [recorder]);
+  async function refreshSessions() {
+    const sessions = await sendMessage({ type: "sessions.list" });
+    if (!sessions.ok || !sessions.threads) {
+      setSessionsError("Unable to load saved sessions.");
+      return;
+    }
+    setSessionsError(null);
+    setSessionThreads(sessions.threads);
+    if (selectedSession) {
+      const current = sessions.threads.flatMap((thread) => thread.runs).find((run) => run.id === selectedSession.id) ?? null;
+      setSelectedSession(current);
+    }
+  }
+  async function openSession(sessionId) {
+    const response = await sendMessage({
+      type: "sessions.get",
+      payload: { sessionId }
+    });
+    if (!response.ok) {
+      setSessionsError("Could not open selected session.");
+      return;
+    }
+    setSelectedSession(response.session);
+  }
+  async function deleteRun(sessionId) {
+    await sendMessage({ type: "sessions.deleteRun", payload: { sessionId } });
+    if (selectedSession?.id === sessionId) {
+      setSelectedSession(null);
+    }
+    await refreshSessions();
+  }
+  async function deleteThread(threadId) {
+    await sendMessage({ type: "sessions.deleteThread", payload: { threadId } });
+    if (selectedSession?.threadId === threadId) {
+      setSelectedSession(null);
+    }
+    await refreshSessions();
+  }
+  async function clearAllSessions() {
+    await sendMessage({ type: "sessions.clearAll" });
+    setSelectedSession(null);
+    await refreshSessions();
+  }
   async function runAnalysis(scanOverride) {
     setAnalyzing(true);
     setAnalyzeError(null);
@@ -29627,6 +29679,7 @@ function App() {
       }
       setAnalysis(result.result);
       setDebug(result.debug);
+      await refreshSessions();
     } finally {
       setAnalyzing(false);
     }
@@ -29948,9 +30001,125 @@ function App() {
           ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { onClick: () => void startRecorder(), disabled: settings.safeMode.enabled, children: "Start UI Recording" })
         ] })
       ] }) : null,
-      tab === "sessions" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "Sessions" }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "muted-wrap", children: "Session listing scaffold. Supports open/export/delete in next increment." })
+      tab === "sessions" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: "section-stack", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "Sessions" }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+                "Runs: ",
+                totalSavedRuns
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "secondary", onClick: () => void refreshSessions(), children: "Refresh" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => void clearAllSessions(), disabled: !totalSavedRuns, children: "Clear All" })
+            ] })
+          ] }),
+          sessionsError ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: sessionsError }) : null,
+          !sessionsError && sessionThreads.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "muted-wrap", children: "No saved analysis sessions yet. Run Analyze in Review tab to create timestamped history." }) : null,
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-list", children: sessionThreads.map((thread) => {
+            const isExpanded = !!expandedThreads[thread.threadId];
+            return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "session-thread", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+                  "button",
+                  {
+                    className: "session-link",
+                    onClick: () => setExpandedThreads((state) => ({ ...state, [thread.threadId]: !state[thread.threadId] })),
+                    children: [
+                      isExpanded ? "\u25BE" : "\u25B8",
+                      " ",
+                      thread.repo,
+                      " #",
+                      thread.ref
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+                    thread.runCount,
+                    " run(s)"
+                  ] }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => void deleteThread(thread.threadId), children: "Delete Thread" })
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: "muted-wrap", children: [
+                "Last updated: ",
+                new Date(thread.lastUpdatedAt).toLocaleString()
+              ] }),
+              isExpanded ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: thread.runs.map((run) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { className: "session-run", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("button", { className: "session-link", onClick: () => void openSession(run.id), children: [
+                  new Date(run.createdAt).toLocaleString(),
+                  " \xB7 Score ",
+                  run.riskScore.toFixed(1),
+                  " \xB7 ",
+                  run.coverageLevel
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: `chip quality-${run.analysisQuality}`, children: [
+                    "Quality: ",
+                    run.analysisQuality
+                  ] }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => void deleteRun(run.id), children: "Delete" })
+                ] })
+              ] }, run.id)) }) : null
+            ] }, thread.threadId);
+          }) })
+        ] }),
+        selectedSession ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("article", { className: "panel-card", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "Session Detail" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: "muted-wrap", children: [
+            selectedSession.repo,
+            " \xB7 ",
+            selectedSession.ref,
+            " \xB7 ",
+            new Date(selectedSession.createdAt).toLocaleString()
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: "metric-line", children: [
+            "Score: ",
+            selectedSession.riskScore.toFixed(1),
+            " / 10"
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "status-chip-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              "Coverage: ",
+              selectedSession.coverageLevel
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: `chip quality-${selectedSession.analysisQuality}`, children: [
+              "Quality: ",
+              selectedSession.analysisQuality
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              "Files sent: ",
+              selectedSession.debug.filesSent
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Risk Areas" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: selectedSession.riskAreas.map((risk, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { className: "risk-item", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: `severity-badge severity-${risk.severity}`, children: risk.severity.toUpperCase() }),
+            " ",
+            risk.area,
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "risk-why", children: risk.why }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "muted-wrap", children: risk.evidence_files.join(", ") })
+          ] }, `${risk.area}-${index}`)) }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Manual Cases" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: "clean-list", children: selectedSession.manualTestCases.map((testCase) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("li", { className: "risk-item", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("strong", { children: [
+              testCase.id,
+              ":"
+            ] }),
+            " ",
+            testCase.title,
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "risk-why", children: [
+              "Why this is suggested: ",
+              testCase.why
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "muted-wrap", children: [
+              "Evidence: ",
+              testCase.evidence_files.join(", ")
+            ] })
+          ] }, testCase.id)) }),
+          selectedSession.debug.warnings.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: selectedSession.debug.warnings.join(" | ") }) : null
+        ] }) : null
       ] }) : null,
       tab === "settings" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("article", { className: "panel-card", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(SettingsPanel, { settings, onSaved: setSettings }) }) : null
     ] })

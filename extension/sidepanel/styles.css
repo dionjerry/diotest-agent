@@ -408,6 +408,40 @@ body,
   max-height: 420px;
 }
 
+.sessions-list {
+  display: grid;
+  gap: 10px;
+}
+
+.session-thread {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(8, 8, 10, 0.65);
+  padding: 10px;
+}
+
+.session-run {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.session-link {
+  border: 0;
+  background: transparent;
+  color: #f3f4f6;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.session-link:hover {
+  text-decoration: underline;
+}
+
 @media (max-width: 420px) {
   .app-title {
     font-size: 30px;

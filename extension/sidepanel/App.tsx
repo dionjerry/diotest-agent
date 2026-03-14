@@ -7,6 +7,7 @@ import { Button } from "./components/ui/button";
 import type { AiAnalysisResultV1, AnalyzeDebug, AnalysisMode } from "../engine/analysis/types";
 import { CodeViewer } from "./components/CodeViewer";
 import { Checkbox } from "./components/ui/checkbox";
+import type { AnalysisSessionRun, AnalysisSessionThread } from "../engine/sessions/types";
 
 function formatElapsed(startedAt: string): string {
   const delta = Math.max(0, Date.now() - new Date(startedAt).getTime());
@@ -55,9 +56,17 @@ export default function App() {
   const [isDebugExpanded, setIsDebugExpanded] = useState(false);
   const [isPromptExpanded, setIsPromptExpanded] = useState(false);
   const [isContextExpanded, setIsContextExpanded] = useState(false);
+  const [sessionThreads, setSessionThreads] = useState<AnalysisSessionThread[]>([]);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+  const [selectedSession, setSelectedSession] = useState<AnalysisSessionRun | null>(null);
   const debugDetailsRef = useRef<HTMLDivElement | null>(null);
 
   const modelOptions = ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"] as const;
+  const totalSavedRuns = useMemo(
+    () => sessionThreads.reduce((total, thread) => total + thread.runCount, 0),
+    [sessionThreads]
+  );
 
   useEffect(() => {
     void (async () => {
@@ -85,6 +94,7 @@ export default function App() {
       if (intent) {
         await chrome.storage.local.remove("diotest.ui.intent");
       }
+      await refreshSessions();
     })();
   }, []);
 
@@ -101,6 +111,56 @@ export default function App() {
   }, [isDebugExpanded]);
 
   const recordingTime = useMemo(() => (recorder.startedAt ? formatElapsed(recorder.startedAt) : "00:00"), [recorder]);
+
+  async function refreshSessions() {
+    const sessions = await sendMessage<{ ok: boolean; threads?: AnalysisSessionThread[] }>({ type: "sessions.list" });
+    if (!sessions.ok || !sessions.threads) {
+      setSessionsError("Unable to load saved sessions.");
+      return;
+    }
+
+    setSessionsError(null);
+    setSessionThreads(sessions.threads);
+
+    if (selectedSession) {
+      const current = sessions.threads.flatMap((thread) => thread.runs).find((run) => run.id === selectedSession.id) ?? null;
+      setSelectedSession(current);
+    }
+  }
+
+  async function openSession(sessionId: string) {
+    const response = await sendMessage<{ ok: boolean; session: AnalysisSessionRun | null }>({
+      type: "sessions.get",
+      payload: { sessionId }
+    });
+    if (!response.ok) {
+      setSessionsError("Could not open selected session.");
+      return;
+    }
+    setSelectedSession(response.session);
+  }
+
+  async function deleteRun(sessionId: string) {
+    await sendMessage({ type: "sessions.deleteRun", payload: { sessionId } });
+    if (selectedSession?.id === sessionId) {
+      setSelectedSession(null);
+    }
+    await refreshSessions();
+  }
+
+  async function deleteThread(threadId: string) {
+    await sendMessage({ type: "sessions.deleteThread", payload: { threadId } });
+    if (selectedSession?.threadId === threadId) {
+      setSelectedSession(null);
+    }
+    await refreshSessions();
+  }
+
+  async function clearAllSessions() {
+    await sendMessage({ type: "sessions.clearAll" });
+    setSelectedSession(null);
+    await refreshSessions();
+  }
 
   async function runAnalysis(scanOverride?: boolean) {
     setAnalyzing(true);
@@ -119,7 +179,7 @@ export default function App() {
       const mode: AnalysisMode = deepScan ? "pr_commit_deep_scan" : "pr_commit";
       const result = await sendMessage<
         | { ok: false; error: string }
-        | { ok: true; result: AiAnalysisResultV1; debug: AnalyzeDebug }
+        | { ok: true; result: AiAnalysisResultV1; debug: AnalyzeDebug; session_id?: string }
       >({
         type: "analysis.run",
         payload: {
@@ -136,6 +196,7 @@ export default function App() {
 
       setAnalysis(result.result);
       setDebug(result.debug);
+      await refreshSessions();
     } finally {
       setAnalyzing(false);
     }
@@ -420,10 +481,99 @@ export default function App() {
         ) : null}
 
         {tab === "sessions" ? (
-          <article className="panel-card">
-            <h3>Sessions</h3>
-            <p className="muted-wrap">Session listing scaffold. Supports open/export/delete in next increment.</p>
-          </article>
+          <section className="section-stack">
+            <article className="panel-card">
+              <div className="panel-head-row">
+                <h3>Sessions</h3>
+                <div className="row-actions">
+                  <span className="chip">Runs: {totalSavedRuns}</span>
+                  <Button variant="secondary" onClick={() => void refreshSessions()}>Refresh</Button>
+                  <Button variant="ghost" onClick={() => void clearAllSessions()} disabled={!totalSavedRuns}>Clear All</Button>
+                </div>
+              </div>
+
+              {sessionsError ? <div className="warning-banner">{sessionsError}</div> : null}
+              {!sessionsError && sessionThreads.length === 0 ? (
+                <p className="muted-wrap">No saved analysis sessions yet. Run Analyze in Review tab to create timestamped history.</p>
+              ) : null}
+
+              <div className="sessions-list">
+                {sessionThreads.map((thread) => {
+                  const isExpanded = !!expandedThreads[thread.threadId];
+                  return (
+                    <div key={thread.threadId} className="session-thread">
+                      <div className="panel-head-row">
+                        <button
+                          className="session-link"
+                          onClick={() => setExpandedThreads((state) => ({ ...state, [thread.threadId]: !state[thread.threadId] }))}
+                        >
+                          {isExpanded ? "▾" : "▸"} {thread.repo} #{thread.ref}
+                        </button>
+                        <div className="row-actions">
+                          <span className="chip">{thread.runCount} run(s)</span>
+                          <Button variant="ghost" onClick={() => void deleteThread(thread.threadId)}>Delete Thread</Button>
+                        </div>
+                      </div>
+                      <p className="muted-wrap">Last updated: {new Date(thread.lastUpdatedAt).toLocaleString()}</p>
+                      {isExpanded ? (
+                        <ul className="clean-list">
+                          {thread.runs.map((run) => (
+                            <li key={run.id} className="session-run">
+                              <button className="session-link" onClick={() => void openSession(run.id)}>
+                                {new Date(run.createdAt).toLocaleString()} · Score {run.riskScore.toFixed(1)} · {run.coverageLevel}
+                              </button>
+                              <div className="row-actions">
+                                <span className={`chip quality-${run.analysisQuality}`}>Quality: {run.analysisQuality}</span>
+                                <Button variant="ghost" onClick={() => void deleteRun(run.id)}>Delete</Button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+
+            {selectedSession ? (
+              <article className="panel-card">
+                <h3>Session Detail</h3>
+                <p className="muted-wrap">
+                  {selectedSession.repo} · {selectedSession.ref} · {new Date(selectedSession.createdAt).toLocaleString()}
+                </p>
+                <p className="metric-line">Score: {selectedSession.riskScore.toFixed(1)} / 10</p>
+                <div className="status-chip-row">
+                  <span className="chip">Coverage: {selectedSession.coverageLevel}</span>
+                  <span className={`chip quality-${selectedSession.analysisQuality}`}>Quality: {selectedSession.analysisQuality}</span>
+                  <span className="chip">Files sent: {selectedSession.debug.filesSent}</span>
+                </div>
+                <h4>Risk Areas</h4>
+                <ul className="clean-list">
+                  {selectedSession.riskAreas.map((risk, index) => (
+                    <li key={`${risk.area}-${index}`} className="risk-item">
+                      <span className={`severity-badge severity-${risk.severity}`}>{risk.severity.toUpperCase()}</span> {risk.area}
+                      <div className="risk-why">{risk.why}</div>
+                      <div className="muted-wrap">{risk.evidence_files.join(", ")}</div>
+                    </li>
+                  ))}
+                </ul>
+                <h4>Manual Cases</h4>
+                <ul className="clean-list">
+                  {selectedSession.manualTestCases.map((testCase) => (
+                    <li key={testCase.id} className="risk-item">
+                      <strong>{testCase.id}:</strong> {testCase.title}
+                      <div className="risk-why">Why this is suggested: {testCase.why}</div>
+                      <div className="muted-wrap">Evidence: {testCase.evidence_files.join(", ")}</div>
+                    </li>
+                  ))}
+                </ul>
+                {selectedSession.debug.warnings.length > 0 ? (
+                  <div className="warning-banner">{selectedSession.debug.warnings.join(" | ")}</div>
+                ) : null}
+              </article>
+            ) : null}
+          </section>
         ) : null}
 
         {tab === "settings" ? (
