@@ -9,6 +9,14 @@ import { clearRecorderState, persistRecorderState, restoreRecorderState } from "
 import { runAiAnalyze } from "../engine/analysis/orchestrator";
 import type { AnalysisMode, ExtractionContext } from "../engine/analysis/types";
 import type { PrExtractResult } from "../engine/pr/types";
+import {
+  clearAllAnalysisSessions,
+  deleteAnalysisSessionRun,
+  deleteAnalysisSessionThread,
+  getAnalysisSession,
+  listAnalysisSessions,
+  saveAnalysisSession
+} from "../engine/sessions/storage";
 
 type Message =
   | { type: "settings.load" }
@@ -16,6 +24,11 @@ type Message =
   | { type: "ui.openPanel"; payload: { tabId: number; intent: "review" | "review_analyze" | "settings" } }
   | { type: "analysis.run"; payload: { tabId: number; mode: AnalysisMode; includeDeepScan: boolean } }
   | { type: "pr.pageState"; payload: { onPr: boolean; url: string } }
+  | { type: "sessions.list" }
+  | { type: "sessions.get"; payload: { sessionId: string } }
+  | { type: "sessions.deleteRun"; payload: { sessionId: string } }
+  | { type: "sessions.deleteThread"; payload: { threadId: string } }
+  | { type: "sessions.clearAll" }
   | { type: "recorder.start"; payload: { tabId: number; domain: string; flow: string } }
   | { type: "recorder.stop" }
   | { type: "recorder.status" }
@@ -117,7 +130,46 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
             return { ok: true as const, context: normalized };
           }
         });
+        if (result.ok) {
+          const persisted = await saveAnalysisSession({
+            mode: message.payload.mode,
+            result: result.result,
+            debug: result.debug
+          });
+
+          sendResponse({
+            ...result,
+            session_id: persisted.sessionId
+          });
+          return;
+        }
+
         sendResponse(result);
+        return;
+      }
+      case "sessions.list": {
+        const sessions = await listAnalysisSessions();
+        sendResponse({ ok: true, ...sessions });
+        return;
+      }
+      case "sessions.get": {
+        const session = await getAnalysisSession(message.payload.sessionId);
+        sendResponse({ ok: true, session });
+        return;
+      }
+      case "sessions.deleteRun": {
+        const deleted = await deleteAnalysisSessionRun(message.payload.sessionId);
+        sendResponse({ ok: true, removed: deleted.removed });
+        return;
+      }
+      case "sessions.deleteThread": {
+        const deleted = await deleteAnalysisSessionThread(message.payload.threadId);
+        sendResponse({ ok: true, removed: deleted.removed });
+        return;
+      }
+      case "sessions.clearAll": {
+        await clearAllAnalysisSessions();
+        sendResponse({ ok: true });
         return;
       }
       case "pr.pageState": {

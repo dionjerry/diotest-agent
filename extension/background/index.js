@@ -1059,6 +1059,134 @@ async function runAiAnalyze(request) {
   };
 }
 
+// extension/engine/sessions/types.ts
+var ANALYSIS_SESSIONS_KEY = "diotest.analysis.sessions.v1";
+var DEFAULT_MAX_ANALYSIS_RUNS = 200;
+
+// extension/engine/sessions/storage.ts
+function parseStoredRuns(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item) => !!item && typeof item === "object");
+}
+function byNewestUpdatedAt(a, b) {
+  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+}
+function buildSessionThreadId(repo, ref) {
+  return `${repo}::${ref}`;
+}
+function groupRunsToThreads(runs) {
+  const byThread = /* @__PURE__ */ new Map();
+  for (const run of runs) {
+    const list = byThread.get(run.threadId) ?? [];
+    list.push(run);
+    byThread.set(run.threadId, list);
+  }
+  const threads = Array.from(byThread.entries()).map(([threadId, threadRuns]) => {
+    const sortedRuns = [...threadRuns].sort(byNewestUpdatedAt);
+    const head = sortedRuns[0];
+    return {
+      threadId,
+      repo: head?.repo ?? "unknown/unknown",
+      ref: head?.ref ?? "unknown",
+      pageType: head?.pageType ?? "pull_request",
+      lastUpdatedAt: head?.updatedAt ?? (/* @__PURE__ */ new Date(0)).toISOString(),
+      runCount: sortedRuns.length,
+      runs: sortedRuns
+    };
+  });
+  return threads.sort((a, b) => new Date(b.lastUpdatedAt).getTime() - new Date(a.lastUpdatedAt).getTime());
+}
+function enforceRunRetention(runs, maxRuns = DEFAULT_MAX_ANALYSIS_RUNS) {
+  const sorted = [...runs].sort(byNewestUpdatedAt);
+  if (sorted.length <= maxRuns) {
+    return { runs: sorted, trimmedCount: 0 };
+  }
+  const kept = sorted.slice(0, maxRuns);
+  return {
+    runs: kept,
+    trimmedCount: sorted.length - kept.length
+  };
+}
+async function listAnalysisSessions() {
+  const stored = await chrome.storage.local.get(ANALYSIS_SESSIONS_KEY);
+  const runs = parseStoredRuns(stored[ANALYSIS_SESSIONS_KEY]).sort(byNewestUpdatedAt);
+  return {
+    threads: groupRunsToThreads(runs),
+    totalRuns: runs.length
+  };
+}
+async function getAnalysisSession(sessionId) {
+  const stored = await chrome.storage.local.get(ANALYSIS_SESSIONS_KEY);
+  const runs = parseStoredRuns(stored[ANALYSIS_SESSIONS_KEY]);
+  return runs.find((run) => run.id === sessionId) ?? null;
+}
+async function clearAllAnalysisSessions() {
+  await chrome.storage.local.remove(ANALYSIS_SESSIONS_KEY);
+}
+async function deleteAnalysisSessionRun(sessionId) {
+  const stored = await chrome.storage.local.get(ANALYSIS_SESSIONS_KEY);
+  const runs = parseStoredRuns(stored[ANALYSIS_SESSIONS_KEY]);
+  const filtered = runs.filter((run) => run.id !== sessionId);
+  if (filtered.length === runs.length) {
+    return { removed: false };
+  }
+  await chrome.storage.local.set({ [ANALYSIS_SESSIONS_KEY]: filtered });
+  return { removed: true };
+}
+async function deleteAnalysisSessionThread(threadId) {
+  const stored = await chrome.storage.local.get(ANALYSIS_SESSIONS_KEY);
+  const runs = parseStoredRuns(stored[ANALYSIS_SESSIONS_KEY]);
+  const filtered = runs.filter((run) => run.threadId !== threadId);
+  const removed = runs.length - filtered.length;
+  if (removed > 0) {
+    await chrome.storage.local.set({ [ANALYSIS_SESSIONS_KEY]: filtered });
+  }
+  return { removed };
+}
+async function saveAnalysisSession(input) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const ref = String(input.debug.request_inspector.ref || input.result.meta.analysis_mode);
+  const threadId = buildSessionThreadId(input.debug.request_inspector.repo, ref);
+  const sessionId = crypto.randomUUID();
+  const run = {
+    id: sessionId,
+    threadId,
+    createdAt: now,
+    updatedAt: now,
+    repo: input.debug.request_inspector.repo,
+    ref,
+    title: input.debug.raw_context.title?.trim() || void 0,
+    pageType: input.debug.request_inspector.page_type,
+    url: input.debug.raw_context.url,
+    mode: input.mode,
+    coverageLevel: input.result.meta.coverage_level,
+    analysisQuality: input.debug.request_inspector.analysis_quality,
+    riskScore: input.result.risk_score,
+    riskAreas: input.result.risk_areas,
+    testPlan: input.result.test_plan,
+    manualTestCases: input.result.manual_test_cases,
+    debug: {
+      warnings: input.debug.warnings,
+      filesDetected: input.debug.request_inspector.files_detected,
+      filesSent: input.debug.request_inspector.files_sent_to_ai,
+      deepScanUsed: input.debug.request_inspector.deep_scan_used,
+      extractionSource: input.debug.request_inspector.extraction_source,
+      normalizationFlags: input.debug.request_inspector.normalization_flags_applied
+    }
+  };
+  const stored = await chrome.storage.local.get(ANALYSIS_SESSIONS_KEY);
+  const existing = parseStoredRuns(stored[ANALYSIS_SESSIONS_KEY]);
+  const retained = enforceRunRetention([run, ...existing], DEFAULT_MAX_ANALYSIS_RUNS);
+  if (retained.trimmedCount > 0) {
+    const current = retained.runs.find((item) => item.id === sessionId);
+    if (current) {
+      current.debug.retentionTrimmed = true;
+    }
+  }
+  await chrome.storage.local.set({ [ANALYSIS_SESSIONS_KEY]: retained.runs });
+  return { sessionId, trimmedCount: retained.trimmedCount };
+}
+
 // extension/background/index.ts
 function setBadge(text, color = "#d0021b") {
   void chrome.action.setBadgeText({ text });
@@ -1151,7 +1279,44 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             return { ok: true, context: normalized };
           }
         });
+        if (result.ok) {
+          const persisted = await saveAnalysisSession({
+            mode: message.payload.mode,
+            result: result.result,
+            debug: result.debug
+          });
+          sendResponse({
+            ...result,
+            session_id: persisted.sessionId
+          });
+          return;
+        }
         sendResponse(result);
+        return;
+      }
+      case "sessions.list": {
+        const sessions = await listAnalysisSessions();
+        sendResponse({ ok: true, ...sessions });
+        return;
+      }
+      case "sessions.get": {
+        const session = await getAnalysisSession(message.payload.sessionId);
+        sendResponse({ ok: true, session });
+        return;
+      }
+      case "sessions.deleteRun": {
+        const deleted = await deleteAnalysisSessionRun(message.payload.sessionId);
+        sendResponse({ ok: true, removed: deleted.removed });
+        return;
+      }
+      case "sessions.deleteThread": {
+        const deleted = await deleteAnalysisSessionThread(message.payload.threadId);
+        sendResponse({ ok: true, removed: deleted.removed });
+        return;
+      }
+      case "sessions.clearAll": {
+        await clearAllAnalysisSessions();
+        sendResponse({ ok: true });
         return;
       }
       case "pr.pageState": {
