@@ -2,7 +2,7 @@
 
 1. Install dependencies: `npm install`
 2. Run tests: `npm run test`
-3. Run lint + typecheck: `npm run lint && npm run typecheck`
+3. Run lint + typecheck + test + build: `npm run lint && npm run typecheck && npm run test && npm run build`
 4. Create a feature branch from `develop`: `feat/<short-name>`
 5. Open PR into `develop` with clear summary and linked issue
 
