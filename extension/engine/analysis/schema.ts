@@ -71,10 +71,12 @@ export const AI_ANALYSIS_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "title", "preconditions", "steps", "expected"],
+        required: ["id", "title", "why", "evidence_files", "preconditions", "steps", "expected"],
         properties: {
           id: { type: "string" },
           title: { type: "string" },
+          why: { type: "string" },
+          evidence_files: { type: "array", items: { type: "string" } },
           preconditions: { type: "array", items: { type: "string" } },
           steps: { type: "array", items: { type: "string" } },
           expected: { type: "array", items: { type: "string" } }
@@ -94,6 +96,18 @@ export function isValidAiAnalysisResult(payload: unknown): payload is Omit<AiAna
   const testPlan = p.test_plan as Record<string, unknown>;
   if (!Array.isArray(testPlan.unit) || !Array.isArray(testPlan.integration) || !Array.isArray(testPlan.e2e)) {
     return false;
+  }
+
+  for (const testCase of p.manual_test_cases) {
+    if (!testCase || typeof testCase !== "object") return false;
+    const t = testCase as Record<string, unknown>;
+    if (typeof t.id !== "string" || !t.id.trim()) return false;
+    if (typeof t.title !== "string" || !t.title.trim()) return false;
+    if (typeof t.why !== "string" || !t.why.trim()) return false;
+    if (!Array.isArray(t.evidence_files) || t.evidence_files.some((f) => typeof f !== "string")) return false;
+    if (!Array.isArray(t.preconditions) || t.preconditions.some((s) => typeof s !== "string")) return false;
+    if (!Array.isArray(t.steps) || t.steps.some((s) => typeof s !== "string")) return false;
+    if (!Array.isArray(t.expected) || t.expected.some((s) => typeof s !== "string")) return false;
   }
 
   return true;

@@ -36,7 +36,8 @@ function toExtractionContext(pr: PrExtractResult): ExtractionContext | null {
     title: pr.context.title,
     description: pr.context.description,
     url: pr.context.url,
-    files: (pr.context.changedFiles ?? []).map((path) => ({ path, source: "dom" as const }))
+    files: (pr.context.changedFiles ?? []).map((path) => ({ path, source: "dom" as const })),
+    extractionSource: pr.context.extractionSource ?? "dom"
   };
 }
 
