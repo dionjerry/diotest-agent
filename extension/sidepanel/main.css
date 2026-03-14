@@ -176,6 +176,18 @@ body,
   max-width: 340px;
   line-height: 1.3;
 }
+.toggle-wrap {
+  display: grid;
+  gap: 6px;
+  max-width: 460px;
+}
+.toggle-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
 .model-select-wrap {
   display: grid;
   gap: 4px;
@@ -207,6 +219,15 @@ body,
   font-size: 12px;
   font-weight: 600;
   color: #e5e7eb;
+}
+.quality-full {
+  border-color: rgba(47, 186, 101, 0.5);
+  color: #c8f7dc;
+}
+.quality-partial,
+.quality-trimmed {
+  border-color: rgba(255, 176, 32, 0.5);
+  color: #ffe6b0;
 }
 .panel-card {
   border: 1px solid rgba(255, 255, 255, 0.14);

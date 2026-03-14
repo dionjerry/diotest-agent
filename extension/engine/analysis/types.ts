@@ -17,6 +17,7 @@ export interface ExtractionContext {
   description: string;
   files: ExtractionFile[];
   url: string;
+  extractionSource?: "dom" | "api" | "partial";
 }
 
 export interface RiskArea {
@@ -35,6 +36,8 @@ export interface SuggestedTest {
 export interface ManualTestCase {
   id: string;
   title: string;
+  why: string;
+  evidence_files: string[];
   preconditions: string[];
   steps: string[];
   expected: string[];
@@ -68,6 +71,12 @@ export interface AnalyzeDebug {
     ai_score: number;
     final_score: number;
     drivers: string[];
+    categories?: {
+      volume: number;
+      churn: number;
+      sensitive_path_impact: number;
+      confidence_penalties: number;
+    };
   };
   request_inspector: {
     mode: AnalysisMode;
@@ -78,6 +87,12 @@ export interface AnalyzeDebug {
     files_sent_to_ai: number;
     deep_scan_requested: boolean;
     deep_scan_used: boolean;
+    extraction_source: "dom" | "api" | "partial";
+    analysis_quality: "full" | "partial" | "trimmed";
+    dropped_files_summary: Array<{ path: string; reason: string }>;
+    normalization_flags_applied: string[];
+    manual_cases_generated: number;
+    manual_cases_kept: number;
     screenshots_sent: boolean;
     prompt_preview: string;
   };

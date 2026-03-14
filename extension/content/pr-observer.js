@@ -41,7 +41,8 @@ function normalizePrContext(raw) {
     title: (raw.title ?? (pageType === "commit" ? "Untitled Commit" : "Untitled PR")).trim(),
     description: (raw.description ?? "").trim(),
     changedFiles,
-    url
+    url,
+    extractionSource: raw.extractionSource ?? "dom"
   };
 }
 
@@ -56,17 +57,35 @@ function textFromSelectors(selectors) {
 }
 function getChangedFiles() {
   const paths = /* @__PURE__ */ new Set();
+  const add = (value) => {
+    const path = value?.trim();
+    if (!path) return;
+    if (!path.includes("/") && !path.includes(".")) return;
+    paths.add(path.replace(/\s+/g, " "));
+  };
   document.querySelectorAll("[data-path]").forEach((el) => {
-    const path = el.getAttribute("data-path")?.trim();
-    if (path) paths.add(path);
+    add(el.getAttribute("data-path"));
+  });
+  document.querySelectorAll("[data-tagsearch-path]").forEach((el) => {
+    add(el.getAttribute("data-tagsearch-path"));
+  });
+  document.querySelectorAll(".file-info a.Link--primary, .file-header a.Link--primary").forEach((el) => {
+    add(el.getAttribute("title"));
+    add(el.textContent);
   });
   document.querySelectorAll("[data-testid='diff-file-name']").forEach((el) => {
-    const path = el.textContent?.trim();
-    if (path) paths.add(path);
+    add(el.textContent);
   });
   document.querySelectorAll("a[href*='/files#diff-']").forEach((el) => {
-    const path = el.textContent?.trim();
-    if (path && path.includes("/")) paths.add(path);
+    add(el.textContent);
+    add(el.getAttribute("title"));
+  });
+  document.querySelectorAll("a[href*='#diff-']").forEach((el) => {
+    add(el.textContent);
+    add(el.getAttribute("title"));
+  });
+  document.querySelectorAll("[title][data-hovercard-type='blob']").forEach((el) => {
+    add(el.getAttribute("title"));
   });
   return Array.from(paths);
 }
@@ -102,7 +121,8 @@ function extractPrContext() {
     title,
     description,
     changedFiles: getChangedFiles(),
-    url
+    url,
+    extractionSource: "dom"
   });
   return { ok: true, context: normalized };
 }

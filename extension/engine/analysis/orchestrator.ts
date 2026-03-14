@@ -8,7 +8,7 @@ import { AI_ANALYSIS_SCHEMA, isValidAiAnalysisResult } from "./schema";
 import { summarizeContext } from "./summarize";
 import { blendRiskScores, computeDeterministicRiskScore } from "./risk";
 import { filterContextFiles } from "./contextFilter";
-import { sanitizeAiIssues } from "./postprocess";
+import { sanitizeAiIssuesWithReport } from "./postprocess";
 import type { AiAnalysisResultV1, AnalysisMode, AnalyzeResult, ExtractionContext } from "./types";
 
 export interface AnalyzeRequest {
@@ -45,12 +45,15 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
   let workingContext = extracted.context;
   const warnings: string[] = [];
   let coverage: "base" | "deep_scan" | "partial" = "base";
-  const forceFallback = workingContext.files.length === 0 && settings.pr.enableApiFallback;
+  let extractionSource: "dom" | "api" | "partial" = workingContext.extractionSource ?? "dom";
+  const forceFallback = workingContext.files.length === 0;
+  const canUseApiFallback = settings.pr.enableApiFallback || request.includeDeepScan;
   if (forceFallback) {
     warnings.push("No files extracted from DOM; trying GitHub API fallback.");
   }
 
-  if (request.includeDeepScan || forceFallback) {
+  if (request.includeDeepScan || (forceFallback && canUseApiFallback)) {
+    const beforeApiCount = workingContext.files.length;
     const augmented = await augmentWithGithubApi(workingContext, settings.auth.githubToken.trim());
     workingContext = augmented.context;
     if (augmented.warning) {
@@ -58,13 +61,32 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
       coverage = "partial";
     } else {
       coverage = "deep_scan";
+      if (workingContext.files.length > beforeApiCount) {
+        extractionSource = "api";
+      }
     }
+
+    if (forceFallback && workingContext.files.length === 0) {
+      extractionSource = "partial";
+      coverage = "partial";
+      warnings.push("Fallback sequence ended in partial mode; analysis proceeds with limited context.");
+    }
+  } else if (forceFallback) {
+    extractionSource = "partial";
+    coverage = "partial";
+    warnings.push("GitHub API fallback is disabled; running partial analysis with limited context.");
   }
 
   const filtering = filterContextFiles(workingContext);
   workingContext = filtering.context;
+  const droppedFilesSummary = [...filtering.droppedFilesSummary];
   if (filtering.removedCount > 0) {
     warnings.push(`Ignored ${filtering.removedCount} generated build artifact file(s) in analysis context.`);
+  }
+
+  if (workingContext.files.length === 0) {
+    extractionSource = "partial";
+    coverage = "partial";
   }
 
   const { summary, tokenEstimate, trimmed } = summarizeContext(
@@ -75,6 +97,9 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
   if (trimmed) {
     warnings.push("Context was token-budget trimmed before AI analysis.");
     coverage = coverage === "deep_scan" ? "partial" : coverage;
+    for (const file of workingContext.files.slice(settings.pr.maxFiles, settings.pr.maxFiles + 20)) {
+      droppedFilesSummary.push({ path: file.path, reason: "token_budget_file_cap" });
+    }
   }
 
   const systemPrompt = buildSystemPrompt();
@@ -112,10 +137,13 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
     aiPayload = repair.data;
   }
 
-  aiPayload = sanitizeAiIssues(aiPayload, workingContext, { trimmed, coverage });
+  const sanitized = sanitizeAiIssuesWithReport(aiPayload, workingContext, { trimmed, coverage });
+  aiPayload = sanitized.payload;
 
   const deterministic = computeDeterministicRiskScore(workingContext, { coverage, trimmed });
   const finalRiskScore = blendRiskScores(aiPayload.risk_score, deterministic.score);
+  const analysisQuality: "full" | "partial" | "trimmed" =
+    trimmed ? "trimmed" : coverage === "partial" || extractionSource === "partial" ? "partial" : "full";
 
   return {
     ok: true,
@@ -139,7 +167,8 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
         deterministic_score: deterministic.score,
         ai_score: aiPayload.risk_score,
         final_score: finalRiskScore,
-        drivers: deterministic.drivers
+        drivers: deterministic.drivers,
+        categories: deterministic.categories
       },
       request_inspector: {
         mode: request.mode,
@@ -148,8 +177,14 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
         ref: String(workingContext.prNumber ?? workingContext.commitSha ?? "unknown"),
         files_detected: extracted.context.files.length,
         files_sent_to_ai: workingContext.files.length,
-        deep_scan_requested: request.includeDeepScan || forceFallback,
+        deep_scan_requested: request.includeDeepScan || (forceFallback && canUseApiFallback),
         deep_scan_used: coverage === "deep_scan",
+        extraction_source: extractionSource,
+        analysis_quality: analysisQuality,
+        dropped_files_summary: droppedFilesSummary,
+        normalization_flags_applied: sanitized.flagsApplied,
+        manual_cases_generated: sanitized.manualCaseQuality.generated,
+        manual_cases_kept: sanitized.manualCaseQuality.kept,
         screenshots_sent: false,
         prompt_preview: userPrompt.slice(0, 2000)
       }

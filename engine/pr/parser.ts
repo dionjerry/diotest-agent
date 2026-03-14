@@ -49,6 +49,7 @@ export function normalizePrContext(raw: RawPrContext): PrContext {
     title: (raw.title ?? (pageType === "commit" ? "Untitled Commit" : "Untitled PR")).trim(),
     description: (raw.description ?? "").trim(),
     changedFiles,
-    url
+    url,
+    extractionSource: raw.extractionSource ?? "dom"
   };
 }

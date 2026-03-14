@@ -11,6 +11,7 @@ Apply these settings in GitHub repository settings.
   - `lint`
   - `typecheck`
   - `test`
+  - `build`
 - Require branches to be up to date before merging: enabled
 - Restrict who can push to matching branches: enabled (maintainers only or nobody)
 - Allow force pushes: disabled
@@ -24,6 +25,7 @@ Apply these settings in GitHub repository settings.
   - `lint`
   - `typecheck`
   - `test`
+  - `build`
 - Require branches to be up to date before merging: enabled
 - Allow force pushes: disabled
 - Allow deletions: disabled

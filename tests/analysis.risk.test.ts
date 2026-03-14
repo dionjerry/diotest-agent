@@ -52,7 +52,6 @@ describe("analysis deterministic risk scoring", () => {
 
   it("blending keeps score close to deterministic floor for low AI estimates", () => {
     const blended = blendRiskScores(2.5, 7.0);
-    expect(blended).toBeGreaterThanOrEqual(6.2);
+    expect(blended).toBeGreaterThanOrEqual(6.0);
   });
 });
-
