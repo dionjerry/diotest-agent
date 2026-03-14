@@ -761,6 +761,9 @@ body,
   font-size: 12px;
   color: var(--text-tertiary);
 }
+.session-surface-toggle {
+  padding-inline: 10px;
+}
 .sessions-breadcrumb {
   margin-bottom: 12px;
   font-size: 11px;
@@ -858,6 +861,312 @@ body,
   gap: 8px;
   margin-top: 14px;
 }
+.recorder-live-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.recorder-live-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+.recorder-live-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.recorder-live-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+.recorder-live-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.recorder-live-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, monospace;
+}
+.recorder-live-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+.recorder-live-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+.recorder-live-empty {
+  padding: 20px 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+.recorder-idle-state {
+  padding: 10px 0 2px;
+}
+.recorder-action-chip {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--accent-dim);
+  color: var(--text-secondary);
+}
+.recorder-action-click,
+.recorder-action-submit {
+  color: #93c5fd;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+.recorder-action-input,
+.recorder-action-change,
+.recorder-action-select {
+  color: #c4b5fd;
+  border-color: rgba(139, 92, 246, 0.3);
+}
+.recorder-action-scroll,
+.recorder-action-navigation {
+  color: #5eead4;
+  border-color: rgba(20, 184, 166, 0.3);
+}
+.recorder-action-focus,
+.recorder-action-blur,
+.recorder-action-keydown {
+  color: #fcd34d;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+.recorder-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.recorder-step-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+.recorder-step-card-muted {
+  opacity: 0.55;
+}
+.recorder-step-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.recorder-step-index {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+.recorder-step-keep {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.recorder-step-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, monospace;
+}
+.recorder-step-image {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+.recorder-generated-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+.recorder-generated-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.recorder-generated-goal {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.recorder-generated-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.recorder-detail-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.recorder-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.recorder-detail-titleblock {
+  min-width: 0;
+  flex: 1;
+}
+.recorder-detail-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.recorder-detail-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.recorder-detail-tab {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 6px 11px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    color 0.12s,
+    background 0.12s;
+}
+.recorder-detail-tab:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.recorder-detail-tab.active {
+  background: var(--accent-dim);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+.recorder-overview-grid {
+  display: grid;
+  gap: 10px;
+}
+.recorder-overview-metrics,
+.recorder-results-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.recorder-generate-controls {
+  display: grid;
+  gap: 8px;
+}
+.recorder-generate-option {
+  align-items: center;
+}
+.recorder-request-banner {
+  padding: 10px 12px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  border-radius: var(--radius-md);
+  background: rgba(59, 130, 246, 0.08);
+  color: #93c5fd;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.recorder-metric-grid {
+  margin-bottom: 0;
+}
+.recorder-url-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.recorder-url-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+.recorder-url-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.recorder-url-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.recorder-url-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  text-decoration: none;
+  font-size: 11px;
+  transition: border-color 0.12s, color 0.12s;
+}
+.recorder-url-open:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  color: var(--text-primary);
+}
+.recorder-url-value {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: ui-monospace, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recorder-url-value.expanded {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.recorder-results-empty {
+  padding: 24px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
 .sessions-empty {
   display: flex;
   flex-direction: column;
@@ -931,11 +1240,20 @@ body,
 @media (max-width: 420px) {
   .sessions-toolbar,
   .sessions-row-top,
-  .sessions-run-line {
+  .sessions-run-line,
+  .recorder-live-summary,
+  .recorder-live-item-top,
+  .recorder-detail-header,
+  .recorder-url-head {
     flex-direction: column;
     align-items: flex-start;
   }
   .sessions-row-chip {
     align-self: flex-start;
+  }
+  .recorder-detail-actions,
+  .recorder-url-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 }

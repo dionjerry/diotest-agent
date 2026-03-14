@@ -9,6 +9,8 @@ import { CodeViewer } from "./components/CodeViewer";
 import { Checkbox } from "./components/ui/checkbox";
 import type { AnalysisSessionRun, AnalysisSessionThread } from "../engine/sessions/types";
 import { buildRepoGroups, buildRunsForRepo, sessionsNavReducer } from "./lib/sessionsView";
+import type { UiRecorderGenerationOptions, UiRecorderSession, UiRecorderSessionGroup } from "../engine/recorder/types";
+import { recorderNavReducer, sessionsForDomain } from "./lib/recorderView";
 
 function formatElapsed(startedAt: string): string {
   const delta = Math.max(0, Date.now() - new Date(startedAt).getTime());
@@ -62,6 +64,101 @@ function cleanSessionTitle(title?: string): string | null {
   return normalized;
 }
 
+function formatRecorderAction(action: string): string {
+  switch (action) {
+    case "click":
+      return "Clicked";
+    case "input":
+      return "Typed";
+    case "change":
+      return "Changed";
+    case "select":
+      return "Selected";
+    case "submit":
+      return "Submitted";
+    case "focus":
+      return "Focused";
+    case "blur":
+      return "Blurred";
+    case "scroll":
+      return "Scrolled";
+    case "keydown":
+      return "Pressed key";
+    case "navigation":
+      return "Navigated";
+    default:
+      return action;
+  }
+}
+
+function formatRecorderStepMeta(step: UiRecorderSession["steps"][number]): string {
+  const parts = [new Date(step.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })];
+  if (step.selector) parts.push(step.selector);
+  if (step.value) parts.push(step.value);
+  if (step.key) parts.push(step.key);
+  return parts.join(" · ");
+}
+
+function formatRecorderStatus(status: UiRecorderSession["status"]): string {
+  switch (status) {
+    case "generated":
+      return "Generated";
+    case "review":
+      return "Ready for review";
+    case "recording":
+      return "Recording";
+    default:
+      return status;
+  }
+}
+
+function getRecorderGenerateLabel(state: "idle" | "saving_review" | "generating" | "error"): string {
+  switch (state) {
+    case "saving_review":
+      return "Saving Review…";
+    case "generating":
+      return "Generating…";
+    case "error":
+      return "Generate Again";
+    default:
+      return "Generate Outputs";
+  }
+}
+
+function getRecorderUrlLabel(value: string): string {
+  try {
+    const url = new URL(value);
+    const path = `${url.pathname}${url.search ? "?" : ""}`;
+    return `${url.hostname}${path}`;
+  } catch {
+    return value;
+  }
+}
+
+function UrlCard({ label, value }: { label: string; value: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="recorder-url-card">
+      <div className="recorder-url-head">
+        <span className="debug-key">{label}</span>
+        <div className="row-actions recorder-url-actions">
+          <Button variant="ghost" onClick={() => setExpanded((current) => !current)}>
+            {expanded ? "Collapse" : "Expand"}
+          </Button>
+          <CopyButton text={value} />
+          <a className="recorder-url-open" href={value} target="_blank" rel="noreferrer">
+            Open
+          </a>
+        </div>
+      </div>
+      <div className={`recorder-url-value${expanded ? " expanded" : ""}`} title={value}>
+        {expanded ? value : getRecorderUrlLabel(value)}
+      </div>
+    </div>
+  );
+}
+
 // ── Copy button with "Copied!" feedback ──
 function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
@@ -83,10 +180,16 @@ const MODEL_OPTIONS = [
   { group: "OpenAI",    options: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"] },
 ] as const;
 
+const DEFAULT_RECORDER_GENERATION_OPTIONS: UiRecorderGenerationOptions = {
+  includeVision: false,
+  includePageSummaries: true,
+};
+
 export default function App() {
   const [settings, setSettings]             = useState<SettingsLatest>(DEFAULT_SETTINGS);
   const [tab, setTab]                       = useState<"review" | "sessions" | "settings">("review");
-  const [recorder, setRecorder]             = useState<{ active: boolean; startedAt?: string; domain?: string }>({ active: false });
+  const [recorder, setRecorder]             = useState<{ active: boolean; startedAt?: string; domain?: string; sessionId?: string }>({ active: false });
+  const [activeRecorderSession, setActiveRecorderSession] = useState<UiRecorderSession | null>(null);
   const [analysis, setAnalysis]             = useState<AiAnalysisResultV1 | null>(null);
   const [debug, setDebug]                   = useState<AnalyzeDebug | null>(null);
   const [analyzeError, setAnalyzeError]     = useState<string | null>(null);
@@ -104,7 +207,29 @@ export default function App() {
     selectedRepo: null,
     selectedSessionId: null,
   });
+  const [sessionsSurface, setSessionsSurface] = useState<"analysis" | "recorder">("analysis");
+  const [recorderGroups, setRecorderGroups] = useState<UiRecorderSessionGroup[]>([]);
+  const [recorderSessionsError, setRecorderSessionsError] = useState<string | null>(null);
+  const [selectedRecorderSession, setSelectedRecorderSession] = useState<UiRecorderSession | null>(null);
+  const [recorderDetailTab, setRecorderDetailTab] = useState<"overview" | "steps" | "results">("overview");
+  const [recorderGenerationOptions, setRecorderGenerationOptions] = useState<UiRecorderGenerationOptions>(DEFAULT_RECORDER_GENERATION_OPTIONS);
+  const [recorderRequestState, setRecorderRequestState] = useState<"idle" | "saving_review" | "generating" | "error">("idle");
+  const [recorderNav, dispatchRecorderNav] = useReducer(recorderNavReducer, {
+    mode: "domains",
+    selectedDomain: null,
+    selectedSessionId: null,
+  });
   const debugDetailsRef = useRef<HTMLDivElement | null>(null);
+
+  async function refreshActiveRecorderSession(sessionId: string): Promise<UiRecorderSession | null> {
+    const response = await sendMessage<{ ok: boolean; session: UiRecorderSession | null }>({
+      type: "recorder.session.get",
+      payload: { sessionId },
+    });
+    if (!response.ok) return null;
+    setActiveRecorderSession(response.session);
+    return response.session;
+  }
 
   useEffect(() => {
     void (async () => {
@@ -113,9 +238,15 @@ export default function App() {
         setSettings(loaded.settings);
         setIncludeDeepScan(loaded.settings.analysis.deepScanDefault);
       }
-      const status = await sendMessage<{ ok: boolean; state: { active: boolean; startedAt: string; domain: string } | null }>({ type: "recorder.status" });
+      const status = await sendMessage<{ ok: boolean; state: { active: boolean; startedAt: string; domain: string; sessionId: string } | null }>({ type: "recorder.status" });
       if (status.ok && status.state) {
-        setRecorder({ active: status.state.active, startedAt: status.state.startedAt, domain: status.state.domain });
+        setRecorder({
+          active: status.state.active,
+          startedAt: status.state.startedAt,
+          domain: status.state.domain,
+          sessionId: status.state.sessionId,
+        });
+        await refreshActiveRecorderSession(status.state.sessionId);
       }
       const intentData = await chrome.storage.local.get("diotest.ui.intent");
       const intent = intentData["diotest.ui.intent"] as "review" | "review_analyze" | "settings" | undefined;
@@ -124,18 +255,37 @@ export default function App() {
       if (intent === "review_analyze") await runAnalysis(loaded.ok ? loaded.settings.analysis.deepScanDefault : false);
       if (intent) await chrome.storage.local.remove("diotest.ui.intent");
       await refreshSessions();
+      await refreshRecorderSessions();
     })();
   }, []);
 
   useEffect(() => {
     if (!recorder.active) return;
-    const t = setInterval(() => setRecorder((r) => ({ ...r })), 1000);
+    const t = setInterval(() => {
+      setRecorder((r) => ({ ...r }));
+      if (recorder.sessionId) {
+        void refreshActiveRecorderSession(recorder.sessionId);
+      }
+    }, 1000);
     return () => clearInterval(t);
-  }, [recorder.active]);
+  }, [recorder.active, recorder.sessionId]);
 
   useEffect(() => {
     if (isDebugExpanded) debugDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [isDebugExpanded]);
+
+  useEffect(() => {
+    setRecorderDetailTab("overview");
+    setRecorderGenerationOptions(
+      selectedRecorderSession?.lastGenerationOptions
+        ? {
+            includeVision: selectedRecorderSession.lastGenerationOptions.includeVision,
+            includePageSummaries: selectedRecorderSession.lastGenerationOptions.includePageSummaries,
+          }
+        : DEFAULT_RECORDER_GENERATION_OPTIONS
+    );
+    setRecorderRequestState("idle");
+  }, [selectedRecorderSession?.id]);
 
   const recordingTime = useMemo(
     () => (recorder.startedAt ? formatElapsed(recorder.startedAt) : "00:00"),
@@ -149,6 +299,14 @@ export default function App() {
   const runsForSelectedRepo = useMemo(
     () => buildRunsForRepo(sessionThreads, sessionsNav.selectedRepo),
     [sessionThreads, sessionsNav.selectedRepo]
+  );
+  const recorderSessionsForSelectedDomain = useMemo(
+    () => sessionsForDomain(recorderGroups, recorderNav.selectedDomain),
+    [recorderGroups, recorderNav.selectedDomain]
+  );
+  const liveRecorderSteps = useMemo(
+    () => [...(activeRecorderSession?.steps ?? [])].slice(-8).reverse(),
+    [activeRecorderSession]
   );
 
   async function refreshSessions() {
@@ -179,6 +337,20 @@ export default function App() {
     });
   }
 
+  async function refreshRecorderSessions() {
+    const response = await sendMessage<{ ok: boolean; sessions?: UiRecorderSessionGroup[] }>({ type: "recorder.session.list" });
+    if (!response.ok || !response.sessions) {
+      setRecorderSessionsError("Unable to load recorder sessions.");
+      return;
+    }
+    setRecorderSessionsError(null);
+    setRecorderGroups(response.sessions);
+    if (selectedRecorderSession) {
+      const current = response.sessions.flatMap((group) => group.sessions).find((session) => session.id === selectedRecorderSession.id) ?? null;
+      setSelectedRecorderSession(current);
+    }
+  }
+
   async function openSession(sessionId: string) {
     const response = await sendMessage<{ ok: boolean; session: AnalysisSessionRun | null }>({
       type: "sessions.get",
@@ -192,6 +364,21 @@ export default function App() {
     setSelectedSession(response.session);
     if (response.session) {
       dispatchSessionsNav({ type: "open_session", sessionId: response.session.id });
+    }
+  }
+
+  async function openRecorderSession(sessionId: string) {
+    const response = await sendMessage<{ ok: boolean; session: UiRecorderSession | null }>({
+      type: "recorder.session.get",
+      payload: { sessionId },
+    });
+    if (!response.ok) {
+      setRecorderSessionsError("Could not open recorder session.");
+      return;
+    }
+    setSelectedRecorderSession(response.session);
+    if (response.session) {
+      dispatchRecorderNav({ type: "open_session", sessionId: response.session.id });
     }
   }
 
@@ -220,6 +407,85 @@ export default function App() {
     setSelectedSession(null);
     dispatchSessionsNav({ type: "reset" });
     await refreshSessions();
+  }
+
+  async function saveRecorderReview(showProgress = false) {
+    if (!selectedRecorderSession) return;
+    if (showProgress) setRecorderRequestState("saving_review");
+    const response = await sendMessage<{ ok: boolean; session: UiRecorderSession | null }>({
+      type: "recorder.session.update",
+      payload: {
+        sessionId: selectedRecorderSession.id,
+        steps: selectedRecorderSession.steps.map((step) => ({ id: step.id, title: step.title, kept: step.kept })),
+      },
+    });
+    if (!response.ok || !response.session) {
+      setRecorderSessionsError("Unable to save recorder review.");
+      if (showProgress) setRecorderRequestState("error");
+      return;
+    }
+    setSelectedRecorderSession(response.session);
+    await refreshRecorderSessions();
+    if (showProgress) setRecorderRequestState("idle");
+  }
+
+  async function generateRecorderOutputs() {
+    if (!selectedRecorderSession) return;
+    if (recorderRequestState === "saving_review" || recorderRequestState === "generating") return;
+    setRecorderSessionsError(null);
+    setRecorderRequestState("saving_review");
+    const reviewResponse = await sendMessage<{ ok: boolean; session: UiRecorderSession | null }>({
+      type: "recorder.session.update",
+      payload: {
+        sessionId: selectedRecorderSession.id,
+        steps: selectedRecorderSession.steps.map((step) => ({ id: step.id, title: step.title, kept: step.kept })),
+      },
+    });
+    if (!reviewResponse.ok || !reviewResponse.session) {
+      setRecorderSessionsError("Unable to save recorder review.");
+      setRecorderRequestState("error");
+      return;
+    }
+    setSelectedRecorderSession(reviewResponse.session);
+    setRecorderRequestState("generating");
+    const response = await sendMessage<
+      | { ok: false; error: string }
+      | { ok: true; session: UiRecorderSession | null }
+    >({
+      type: "recorder.session.generate",
+      payload: {
+        sessionId: selectedRecorderSession.id,
+        includeVision: recorderGenerationOptions.includeVision,
+        includePageSummaries: recorderGenerationOptions.includePageSummaries,
+      },
+    });
+    if (!response.ok || !response.session) {
+      setRecorderSessionsError(response.ok ? "Unable to generate recorder outputs." : response.error);
+      setRecorderRequestState("error");
+      return;
+    }
+    setSelectedRecorderSession(response.session);
+    setRecorderDetailTab("results");
+    await refreshRecorderSessions();
+    setRecorderRequestState("idle");
+  }
+
+  async function deleteRecorderSession(sessionId: string) {
+    if (!confirm("Delete this recorder session?")) return;
+    await sendMessage({ type: "recorder.session.delete", payload: { sessionId } });
+    if (selectedRecorderSession?.id === sessionId) {
+      setSelectedRecorderSession(null);
+      dispatchRecorderNav({ type: "back" });
+    }
+    await refreshRecorderSessions();
+  }
+
+  async function clearAllRecorderSessions() {
+    if (!confirm("Clear all recorder sessions?")) return;
+    await sendMessage({ type: "recorder.session.clearAll" });
+    setSelectedRecorderSession(null);
+    dispatchRecorderNav({ type: "reset" });
+    await refreshRecorderSessions();
   }
 
   async function runAnalysis(scanOverride?: boolean) {
@@ -265,16 +531,33 @@ export default function App() {
     const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!active?.id || !active.url) return;
     const domain = new URL(active.url).hostname;
-    const res = await sendMessage<{ ok: boolean; session?: { startedAt: string; domain: string }; error?: string }>({
+    const res = await sendMessage<{ ok: boolean; session?: { startedAt: string; domain: string; sessionId: string }; error?: string }>({
       type: "recorder.start",
       payload: { tabId: active.id, domain, flow: "Recorded Flow" },
     });
-    if (res.ok && res.session) setRecorder({ active: true, startedAt: res.session.startedAt, domain: res.session.domain });
+    if (res.ok && res.session) {
+      setRecorder({
+        active: true,
+        startedAt: res.session.startedAt,
+        domain: res.session.domain,
+        sessionId: res.session.sessionId,
+      });
+      await refreshActiveRecorderSession(res.session.sessionId);
+    }
   }
 
   async function stopRecorder() {
-    await sendMessage({ type: "recorder.stop" });
+    const result = await sendMessage<{ ok: boolean; session?: UiRecorderSession | null }>({ type: "recorder.stop" });
     setRecorder({ active: false });
+    setActiveRecorderSession(null);
+    await refreshRecorderSessions();
+    if (result.ok && result.session) {
+      setSessionsSurface("recorder");
+      setTab("sessions");
+      setSelectedRecorderSession(result.session);
+      dispatchRecorderNav({ type: "open_domain", domain: result.session.domain });
+      dispatchRecorderNav({ type: "open_session", sessionId: result.session.id });
+    }
   }
 
   // Build flat test plan list for cleaner rendering
@@ -289,6 +572,84 @@ export default function App() {
 
   const scoreClass = analysis ? getRiskClass(analysis.risk_score) : "score-low";
   const scoreLabel = analysis ? getRiskLabel(analysis.risk_score) : "";
+
+  function renderRecorderPanel() {
+    return (
+      <div className="panel-card">
+        <div className="panel-head-row">
+          <div>
+            <h3 style={{ marginBottom: 4 }}>UI Recorder</h3>
+            <div className="sessions-toolbar-meta">
+              {recorder.active
+                ? "Live action log while recording. Stop to review and generate tests."
+                : "Capture clicks, scrolls, typing, and navigation from the active page."}
+            </div>
+          </div>
+          {recorder.active ? (
+            <Button variant="secondary" onClick={() => void stopRecorder()}>Stop & Review</Button>
+          ) : (
+            <Button
+              variant="secondary"
+              onClick={() => void startRecorder()}
+              disabled={settings.safeMode.enabled}
+            >
+              Start Recording
+            </Button>
+          )}
+        </div>
+
+        {recorder.active ? (
+          <>
+            <div className="recorder-live-shell">
+              <div className="recorder-live-summary">
+                <div className="recorder-live">
+                  <div className="recorder-dot" />
+                  <span className="recorder-meta">
+                    Recording <span className="recorder-time">{recordingTime}</span>
+                    {recorder.domain ? ` · ${recorder.domain}` : ""}
+                  </span>
+                </div>
+                <div className="status-chip-row">
+                  <span className="chip">{activeRecorderSession?.steps.length ?? 0} events</span>
+                  <span className="chip">{activeRecorderSession?.screenshotsCaptured ?? 0} screenshots</span>
+                </div>
+              </div>
+
+              <div className="recorder-live-log">
+                {liveRecorderSteps.length > 0 ? (
+                  liveRecorderSteps.map((step) => (
+                    <div key={step.id} className="recorder-live-item">
+                      <div className="recorder-live-item-top">
+                        <span className={`recorder-action-chip recorder-action-${step.action}`}>{formatRecorderAction(step.action)}</span>
+                        <span className="recorder-live-time">
+                          {new Date(step.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                        </span>
+                      </div>
+                      <div className="recorder-live-title">{step.title}</div>
+                      <div className="recorder-live-meta">{formatRecorderStepMeta(step)}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="sessions-empty recorder-live-empty">
+                    <div className="sessions-empty-title">Waiting for actions</div>
+                    <div className="sessions-empty-desc">
+                      Click, scroll, type, or navigate on the current page and the log will update here.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="recorder-idle-state">
+            <div className="sessions-empty-desc">
+              After you stop recording, DioTest opens a review screen with the captured page actions and generates manual cases from the kept steps.
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <main className="app-shell">
@@ -580,32 +941,7 @@ export default function App() {
                   )}
                 </div>
 
-                {/* UI Recorder — moved here, below all analysis */}
-                <div className="panel-card">
-                  <h3>UI Recorder</h3>
-                  <div className="recorder-row">
-                    {recorder.active ? (
-                      <>
-                        <div className="recorder-live">
-                          <div className="recorder-dot" />
-                          <span className="recorder-meta">
-                            Recording <span className="recorder-time">{recordingTime}</span>
-                            {recorder.domain ? ` · ${recorder.domain}` : ""}
-                          </span>
-                        </div>
-                        <Button variant="secondary" onClick={() => void stopRecorder()}>Stop</Button>
-                      </>
-                    ) : (
-                      <Button
-                        variant="secondary"
-                        onClick={() => void startRecorder()}
-                        disabled={settings.safeMode.enabled}
-                      >
-                        Start recording
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                {renderRecorderPanel()}
               </>
             )}
 
@@ -623,33 +959,7 @@ export default function App() {
             )}
 
             {/* UI Recorder — show even before analysis */}
-            {!analysis && !analyzing && (
-              <div className="panel-card">
-                <h3>UI Recorder</h3>
-                <div className="recorder-row">
-                  {recorder.active ? (
-                    <>
-                      <div className="recorder-live">
-                        <div className="recorder-dot" />
-                        <span className="recorder-meta">
-                          Recording <span className="recorder-time">{recordingTime}</span>
-                          {recorder.domain ? ` · ${recorder.domain}` : ""}
-                        </span>
-                      </div>
-                      <Button variant="secondary" onClick={() => void stopRecorder()}>Stop</Button>
-                    </>
-                  ) : (
-                    <Button
-                      variant="secondary"
-                      onClick={() => void startRecorder()}
-                      disabled={settings.safeMode.enabled}
-                    >
-                      Start recording
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
+            {!analysis && !analyzing && renderRecorderPanel()}
           </div>
         )}
 
@@ -660,74 +970,167 @@ export default function App() {
               <div className="sessions-toolbar">
                 <div>
                   <h3 style={{ marginBottom: 4 }}>Sessions</h3>
-                  <div className="sessions-toolbar-meta">{totalSavedRuns} saved run{totalSavedRuns === 1 ? "" : "s"}</div>
-                </div>
-                <div className="row-actions">
-                  <Button variant="secondary" onClick={() => void refreshSessions()}>Refresh</Button>
-                  <Button variant="ghost" onClick={() => void clearAllSessions()} disabled={!totalSavedRuns}>Clear All</Button>
-                </div>
-              </div>
-
-              <div className="sessions-breadcrumb">
-                Sessions
-                {sessionsNav.selectedRepo ? ` / ${sessionsNav.selectedRepo}` : ""}
-                {selectedSession ? ` / ${selectedSession.ref}` : ""}
-              </div>
-
-              {sessionsError ? <div className="warning-banner">{sessionsError}</div> : null}
-
-              {!sessionsError && totalSavedRuns === 0 ? (
-                <div className="sessions-empty">
-                  <div className="empty-icon">◫</div>
-                  <div className="sessions-empty-title">No sessions yet</div>
-                  <div className="sessions-empty-desc">
-                    Run Analyze in the Review tab and each result will be saved here automatically.
+                  <div className="sessions-toolbar-meta">
+                    {sessionsSurface === "analysis"
+                      ? `${totalSavedRuns} saved analysis run${totalSavedRuns === 1 ? "" : "s"}`
+                      : `${recorderGroups.reduce((count, group) => count + group.sessionCount, 0)} recorded session${recorderGroups.reduce((count, group) => count + group.sessionCount, 0) === 1 ? "" : "s"}`}
                   </div>
                 </div>
-              ) : null}
-
-              {!sessionsError && totalSavedRuns > 0 && sessionsNav.mode !== "repos" ? (
-                <div className="sessions-nav-row">
-                  <Button variant="ghost" onClick={() => dispatchSessionsNav({ type: "back" })}>Back</Button>
-                  {sessionsNav.selectedRepo ? <div className="sessions-nav-chip">{sessionsNav.selectedRepo}</div> : null}
+                <div className="row-actions">
+                  <Button
+                    className="session-surface-toggle"
+                    variant={sessionsSurface === "analysis" ? "secondary" : "ghost"}
+                    onClick={() => setSessionsSurface("analysis")}
+                  >
+                    Analysis
+                  </Button>
+                  <Button
+                    className="session-surface-toggle"
+                    variant={sessionsSurface === "recorder" ? "secondary" : "ghost"}
+                    onClick={() => setSessionsSurface("recorder")}
+                  >
+                    Recorder
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => void (sessionsSurface === "analysis" ? refreshSessions() : refreshRecorderSessions())}
+                  >
+                    Refresh
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => void (sessionsSurface === "analysis" ? clearAllSessions() : clearAllRecorderSessions())}
+                    disabled={sessionsSurface === "analysis" ? !totalSavedRuns : recorderGroups.length === 0}
+                  >
+                    Clear All
+                  </Button>
                 </div>
-              ) : null}
+              </div>
 
-              {!sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "repos" ? (
-                <div className="sessions-list">
-                  {repoGroups.map((repo) => (
-                    <button
-                      key={repo.repo}
-                      className="sessions-row"
-                      onClick={() => dispatchSessionsNav({ type: "open_repo", repo: repo.repo })}
-                    >
-                      <div className="sessions-row-top">
-                        <div className="sessions-row-title">{repo.repo}</div>
-                        <div className="sessions-row-chip">{repo.runCount} run{repo.runCount === 1 ? "" : "s"}</div>
+              {sessionsSurface === "analysis" ? (
+                <>
+                  <div className="sessions-breadcrumb">
+                    Sessions
+                    {sessionsNav.selectedRepo ? ` / ${sessionsNav.selectedRepo}` : ""}
+                    {selectedSession ? ` / ${selectedSession.ref}` : ""}
+                  </div>
+
+                  {sessionsError ? <div className="warning-banner">{sessionsError}</div> : null}
+
+                  {!sessionsError && totalSavedRuns === 0 ? (
+                    <div className="sessions-empty">
+                      <div className="empty-icon">◫</div>
+                      <div className="sessions-empty-title">No analysis sessions yet</div>
+                      <div className="sessions-empty-desc">
+                        Run Analyze in the Review tab and each result will be saved here automatically.
                       </div>
-                      <div className="sessions-row-subtle">Last scanned {new Date(repo.lastUpdatedAt).toLocaleString()}</div>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+                    </div>
+                  ) : null}
 
-              {!sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "runs" ? (
-                <div className="sessions-list">
-                  {runsForSelectedRepo.map((run) => (
-                    <button key={run.id} className="sessions-row" onClick={() => void openSession(run.id)}>
-                      {cleanSessionTitle(run.title) ? <div className="sessions-run-heading">{cleanSessionTitle(run.title)}</div> : null}
-                      <div className="sessions-run-line">
-                        <div className="sessions-row-title">{run.pageType === "pull_request" ? `PR #${run.ref}` : run.ref.slice(0, 12)}</div>
-                        <div className="sessions-row-chip">Score {run.riskScore.toFixed(1)}</div>
+                  {!sessionsError && totalSavedRuns > 0 && sessionsNav.mode !== "repos" ? (
+                    <div className="sessions-nav-row">
+                      <Button variant="ghost" onClick={() => dispatchSessionsNav({ type: "back" })}>Back</Button>
+                      {sessionsNav.selectedRepo ? <div className="sessions-nav-chip">{sessionsNav.selectedRepo}</div> : null}
+                    </div>
+                  ) : null}
+
+                  {!sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "repos" ? (
+                    <div className="sessions-list">
+                      {repoGroups.map((repo) => (
+                        <button
+                          key={repo.repo}
+                          className="sessions-row"
+                          onClick={() => dispatchSessionsNav({ type: "open_repo", repo: repo.repo })}
+                        >
+                          <div className="sessions-row-top">
+                            <div className="sessions-row-title">{repo.repo}</div>
+                            <div className="sessions-row-chip">{repo.runCount} run{repo.runCount === 1 ? "" : "s"}</div>
+                          </div>
+                          <div className="sessions-row-subtle">Last scanned {new Date(repo.lastUpdatedAt).toLocaleString()}</div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {!sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "runs" ? (
+                    <div className="sessions-list">
+                      {runsForSelectedRepo.map((run) => (
+                        <button key={run.id} className="sessions-row" onClick={() => void openSession(run.id)}>
+                          {cleanSessionTitle(run.title) ? <div className="sessions-run-heading">{cleanSessionTitle(run.title)}</div> : null}
+                          <div className="sessions-run-line">
+                            <div className="sessions-row-title">{run.pageType === "pull_request" ? `PR #${run.ref}` : run.ref.slice(0, 12)}</div>
+                            <div className="sessions-row-chip">Score {run.riskScore.toFixed(1)}</div>
+                          </div>
+                          <div className="sessions-row-subtle">{new Date(run.createdAt).toLocaleString()}</div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <div className="sessions-breadcrumb">
+                    Recorder
+                    {recorderNav.selectedDomain ? ` / ${recorderNav.selectedDomain}` : ""}
+                    {selectedRecorderSession ? ` / ${selectedRecorderSession.name}` : ""}
+                  </div>
+
+                  {recorderSessionsError ? <div className="warning-banner">{recorderSessionsError}</div> : null}
+
+                  {!recorderSessionsError && recorderGroups.length === 0 ? (
+                    <div className="sessions-empty">
+                      <div className="empty-icon">◎</div>
+                      <div className="sessions-empty-title">No recorder sessions yet</div>
+                      <div className="sessions-empty-desc">
+                        Start recording from the Review tab, then stop to open the step review flow here.
                       </div>
-                      <div className="sessions-row-subtle">{new Date(run.createdAt).toLocaleString()}</div>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+                    </div>
+                  ) : null}
+
+                  {!recorderSessionsError && recorderGroups.length > 0 && recorderNav.mode !== "domains" ? (
+                    <div className="sessions-nav-row">
+                      <Button variant="ghost" onClick={() => dispatchRecorderNav({ type: "back" })}>Back</Button>
+                      {recorderNav.selectedDomain ? <div className="sessions-nav-chip">{recorderNav.selectedDomain}</div> : null}
+                    </div>
+                  ) : null}
+
+                  {!recorderSessionsError && recorderGroups.length > 0 && recorderNav.mode === "domains" ? (
+                    <div className="sessions-list">
+                      {recorderGroups.map((group) => (
+                        <button
+                          key={group.domain}
+                          className="sessions-row"
+                          onClick={() => dispatchRecorderNav({ type: "open_domain", domain: group.domain })}
+                        >
+                          <div className="sessions-row-top">
+                            <div className="sessions-row-title">{group.domain}</div>
+                            <div className="sessions-row-chip">{group.sessionCount} session{group.sessionCount === 1 ? "" : "s"}</div>
+                          </div>
+                          <div className="sessions-row-subtle">Last recorded {new Date(group.lastUpdatedAt).toLocaleString()}</div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {!recorderSessionsError && recorderGroups.length > 0 && recorderNav.mode === "sessions" ? (
+                    <div className="sessions-list">
+                      {recorderSessionsForSelectedDomain.map((session) => (
+                        <button key={session.id} className="sessions-row" onClick={() => void openRecorderSession(session.id)}>
+                          <div className="sessions-run-heading">{session.name}</div>
+                          <div className="sessions-run-line">
+                            <div className="sessions-row-title">{formatRecorderStatus(session.status)}</div>
+                            <div className="sessions-row-chip">{session.steps.length} step{session.steps.length === 1 ? "" : "s"}</div>
+                          </div>
+                          <div className="sessions-row-subtle">{new Date(session.startedAt).toLocaleString()}</div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
+              )}
             </div>
 
-            {!sessionsError && sessionsNav.mode === "detail" && selectedSession ? (
+            {sessionsSurface === "analysis" && !sessionsError && sessionsNav.mode === "detail" && selectedSession ? (
               <div className="panel-card">
                 <div className="panel-head-row">
                   <div>
@@ -815,6 +1218,242 @@ export default function App() {
                   </div>
                   {selectedSession.debug.warnings.length > 0 ? (
                     <div className="warning-banner">{selectedSession.debug.warnings.join(" | ")}</div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {sessionsSurface === "recorder" && !recorderSessionsError && recorderNav.mode === "detail" && selectedRecorderSession ? (
+              <div className="panel-card">
+                <div className="recorder-detail-shell">
+                  <div className="recorder-detail-header">
+                    <div className="recorder-detail-titleblock">
+                      <h3 style={{ marginBottom: 4 }}>{selectedRecorderSession.name}</h3>
+                      <div className="sessions-toolbar-meta">{selectedRecorderSession.domain}</div>
+                    </div>
+                    <div className="row-actions recorder-detail-actions">
+                      <Button variant="ghost" onClick={() => dispatchRecorderNav({ type: "back" })}>Back</Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => void saveRecorderReview(true)}
+                        disabled={recorderRequestState === "saving_review" || recorderRequestState === "generating"}
+                      >
+                        {recorderRequestState === "saving_review" ? "Saving…" : "Save Review"}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => void generateRecorderOutputs()}
+                        disabled={selectedRecorderSession.steps.filter((step) => step.kept).length === 0 || recorderRequestState === "saving_review" || recorderRequestState === "generating"}
+                      >
+                        {getRecorderGenerateLabel(recorderRequestState)}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => void deleteRecorderSession(selectedRecorderSession.id)}
+                        disabled={recorderRequestState === "saving_review" || recorderRequestState === "generating"}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="status-chip-row">
+                    <span className="chip">{formatRecorderStatus(selectedRecorderSession.status)}</span>
+                    <span className="chip">{selectedRecorderSession.steps.length} steps</span>
+                    <span className="chip">{selectedRecorderSession.steps.filter((step) => step.kept).length} kept</span>
+                    <span className="chip">{selectedRecorderSession.screenshotsCaptured} screenshots</span>
+                    <span className="chip">{selectedRecorderSession.pageSummaries?.length ?? 0} page summaries</span>
+                  </div>
+
+                  <div className="sessions-detail-meta">
+                    Started {new Date(selectedRecorderSession.startedAt).toLocaleString()}
+                    {selectedRecorderSession.stoppedAt ? ` · Stopped ${new Date(selectedRecorderSession.stoppedAt).toLocaleString()}` : ""}
+                  </div>
+
+                  <div className="recorder-detail-tabs">
+                    <button
+                      className={`recorder-detail-tab${recorderDetailTab === "overview" ? " active" : ""}`}
+                      onClick={() => setRecorderDetailTab("overview")}
+                    >
+                      Overview
+                    </button>
+                    <button
+                      className={`recorder-detail-tab${recorderDetailTab === "steps" ? " active" : ""}`}
+                      onClick={() => setRecorderDetailTab("steps")}
+                    >
+                      Steps
+                    </button>
+                    <button
+                      className={`recorder-detail-tab${recorderDetailTab === "results" ? " active" : ""}`}
+                      onClick={() => setRecorderDetailTab("results")}
+                    >
+                      Results
+                    </button>
+                  </div>
+
+                  <div className="recorder-generate-controls">
+                    <label className="checkbox-field recorder-generate-option">
+                      <Checkbox
+                        checked={recorderGenerationOptions.includeVision}
+                        onChange={(e) => setRecorderGenerationOptions((current) => ({ ...current, includeVision: e.target.checked }))}
+                        disabled={recorderRequestState === "saving_review" || recorderRequestState === "generating"}
+                      />
+                      <div className="checkbox-field-body">
+                        <span className="checkbox-field-label">Analyze screenshots</span>
+                        <span className="checkbox-field-desc">Use screenshot pixels to understand visible UI state during generation.</span>
+                      </div>
+                    </label>
+                    <label className="checkbox-field recorder-generate-option">
+                      <Checkbox
+                        checked={recorderGenerationOptions.includePageSummaries}
+                        onChange={(e) => setRecorderGenerationOptions((current) => ({ ...current, includePageSummaries: e.target.checked }))}
+                        disabled={recorderRequestState === "saving_review" || recorderRequestState === "generating"}
+                      />
+                      <div className="checkbox-field-body">
+                        <span className="checkbox-field-label">Include page summaries</span>
+                        <span className="checkbox-field-desc">Pass a lightweight visible-UI summary for each captured page in the flow.</span>
+                      </div>
+                    </label>
+                  </div>
+
+                  {recorderRequestState === "generating" ? (
+                    <div className="recorder-request-banner">Generating outputs from reviewed steps, screenshots, and page summaries…</div>
+                  ) : null}
+
+                  {recorderDetailTab === "overview" ? (
+                    <div className="sessions-detail-section">
+                      <div className="recorder-overview-grid">
+                        <div className="recorder-overview-metrics">
+                          <div className="debug-grid recorder-metric-grid">
+                            <div className="debug-row"><span className="debug-key">Status</span><span className="debug-val">{formatRecorderStatus(selectedRecorderSession.status)}</span></div>
+                            <div className="debug-row"><span className="debug-key">Steps</span><span className="debug-val">{selectedRecorderSession.steps.length}</span></div>
+                            <div className="debug-row"><span className="debug-key">Kept</span><span className="debug-val">{selectedRecorderSession.steps.filter((step) => step.kept).length}</span></div>
+                            <div className="debug-row"><span className="debug-key">Screenshots</span><span className="debug-val">{selectedRecorderSession.screenshotsCaptured}</span></div>
+                          </div>
+                          {selectedRecorderSession.warnings.length > 0 ? (
+                            <div className="warning-banner">{selectedRecorderSession.warnings.join(" | ")}</div>
+                          ) : null}
+                        </div>
+                        <div className="recorder-url-stack">
+                          <UrlCard label="Start URL" value={selectedRecorderSession.startUrl} />
+                          <UrlCard label="Last URL" value={selectedRecorderSession.lastUrl} />
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {recorderDetailTab === "steps" ? (
+                    <div className="sessions-detail-section">
+                      <div className="panel-head-row">
+                        <h4>Reviewed Steps</h4>
+                        <div className="sessions-toolbar-meta">Cleaner labels and reduced noise are already applied here.</div>
+                      </div>
+                      <div className="recorder-step-list">
+                        {selectedRecorderSession.steps.map((step, index) => (
+                          <div key={step.id} className={`recorder-step-card${step.kept ? "" : " recorder-step-card-muted"}`}>
+                            <div className="recorder-step-top">
+                              <span className="recorder-step-index">{index + 1}</span>
+                              <label className="recorder-step-keep">
+                                <Checkbox
+                                  checked={step.kept}
+                                  onChange={(e) => {
+                                    setSelectedRecorderSession((current) => current ? {
+                                      ...current,
+                                      steps: current.steps.map((item) => item.id === step.id ? { ...item, kept: e.target.checked } : item),
+                                    } : current);
+                                  }}
+                                />
+                                <span>Keep</span>
+                              </label>
+                            </div>
+                            <input
+                              className="dt-input"
+                              value={step.title}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setSelectedRecorderSession((current) => current ? {
+                                  ...current,
+                                  steps: current.steps.map((item) => item.id === step.id ? { ...item, title: value } : item),
+                                } : current);
+                              }}
+                            />
+                            <div className="recorder-step-meta">
+                              <span>{formatRecorderAction(step.action)}</span>
+                              <span>{new Date(step.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+                              {step.selector ? <span>{step.selector}</span> : null}
+                              {step.url ? <span>{getRecorderUrlLabel(step.url)}</span> : null}
+                            </div>
+                            {step.screenshot ? <img className="recorder-step-image" src={step.screenshot.dataUrl} alt={step.title} /> : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {recorderDetailTab === "results" ? (
+                    <div className="sessions-detail-section">
+                      <div className="recorder-results-summary">
+                        <div className="debug-grid recorder-metric-grid">
+                          <div className="debug-row"><span className="debug-key">Manual cases</span><span className="debug-val">{selectedRecorderSession.generated?.manual_test_cases.length ?? 0}</span></div>
+                          <div className="debug-row"><span className="debug-key">Scenario steps</span><span className="debug-val">{selectedRecorderSession.generated?.playwright_scenario.steps.length ?? 0}</span></div>
+                          <div className="debug-row"><span className="debug-key">Flow-derived</span><span className="debug-val">{selectedRecorderSession.generated?.manual_test_cases.filter((testCase) => testCase.source === "flow").length ?? 0}</span></div>
+                          <div className="debug-row"><span className="debug-key">Page-derived</span><span className="debug-val">{selectedRecorderSession.generated?.manual_test_cases.filter((testCase) => testCase.source === "page").length ?? 0}</span></div>
+                          <div className="debug-row"><span className="debug-key">Vision</span><span className="debug-val">{selectedRecorderSession.lastGenerationOptions?.includeVision ? "on" : "off"}</span></div>
+                          <div className="debug-row"><span className="debug-key">Page summaries</span><span className="debug-val">{selectedRecorderSession.lastGenerationOptions?.includePageSummaries !== false ? "on" : "off"}</span></div>
+                        </div>
+                        <div className="sessions-toolbar-meta">
+                          Generated outputs now combine recorded-flow cases with additional visited-page opportunities from page summaries and screenshots.
+                        </div>
+                      </div>
+
+                      {selectedRecorderSession.generated ? (
+                        <>
+                          <div className="recorder-generated-block">
+                            <h4>Manual Cases</h4>
+                            <div className="manual-list">
+                              {selectedRecorderSession.generated.manual_test_cases.map((testCase) => (
+                                <div key={testCase.id} className="manual-case">
+                                  <div className="manual-case-header">
+                                    <span className="manual-case-id">{testCase.id}</span>
+                                    <span className="manual-case-title">{testCase.title}</span>
+                                    {testCase.source ? <span className="sessions-row-chip">{testCase.source}</span> : null}
+                                  </div>
+                                  <div className="manual-case-why">{testCase.why}</div>
+                                  {testCase.evidence_files.length > 0 ? (
+                                    <div className="manual-case-files">{testCase.evidence_files.join(", ")}</div>
+                                  ) : null}
+                                  {testCase.steps.length > 0 ? (
+                                    <div className="recorder-generated-list">
+                                      {testCase.steps.map((item, index) => (
+                                        <div key={`${testCase.id}-step-${index}`} className="trust-driver">{item}</div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="recorder-generated-block">
+                            <h4>Playwright Scenario</h4>
+                            <div className="recorder-generated-title">{selectedRecorderSession.generated.playwright_scenario.title}</div>
+                            <div className="recorder-generated-goal">{selectedRecorderSession.generated.playwright_scenario.goal}</div>
+                            <div className="recorder-generated-list">
+                              {selectedRecorderSession.generated.playwright_scenario.steps.map((step, index) => (
+                                <div key={`${step.action}-${index}`} className="trust-driver">
+                                  {[step.action, step.target, step.assertion].filter(Boolean).join(" | ")}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="sessions-empty recorder-results-empty">
+                          <div className="sessions-empty-title">No generated outputs yet</div>
+                          <div className="sessions-empty-desc">Save your reviewed steps, then generate manual cases and a Playwright scenario from this flow.</div>
+                        </div>
+                      )}
+                    </div>
                   ) : null}
                 </div>
               </div>

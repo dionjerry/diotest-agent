@@ -15,6 +15,7 @@ await build({
   entryPoints: {
     "extension/background/index": "extension/background/index.ts",
     "extension/content/pr-observer": "extension/content/pr-observer.ts",
+    "extension/content/ui-recorder": "extension/content/ui-recorder.ts",
     "extension/sidepanel/main": "extension/sidepanel/main.tsx",
     "extension/popup/main": "extension/popup/main.ts"
   },

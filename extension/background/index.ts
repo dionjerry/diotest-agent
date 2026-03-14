@@ -6,6 +6,25 @@ import { DEFAULT_SETTINGS } from "../engine/settings/defaults";
 import { loadSettings, saveSettingsAtomically } from "../engine/settings/storage";
 import { autoSessionName } from "../engine/ui/sessionNaming";
 import { clearRecorderState, persistRecorderState, restoreRecorderState } from "../engine/worker/state";
+import type {
+  RecorderActiveState,
+  RecorderPageSummaryPayload,
+  RawRecorderEvent,
+  UiRecorderGenerationOptions,
+  UiRecorderSession,
+} from "../engine/recorder/types";
+import {
+  appendUiRecorderEvent,
+  clearAllUiRecorderSessions,
+  createUiRecorderSession,
+  deleteUiRecorderSession,
+  finalizeUiRecorderSession,
+  getUiRecorderSession,
+  listUiRecorderSessions,
+  setUiRecorderGenerationOptions,
+  updateUiRecorderSession
+} from "../engine/recorder/storage";
+import { generateUiRecorderArtifacts } from "../engine/recorder/orchestrator";
 import { runAiAnalyze } from "../engine/analysis/orchestrator";
 import type { AnalysisMode, ExtractionContext } from "../engine/analysis/types";
 import type { PrExtractResult } from "../engine/pr/types";
@@ -30,8 +49,15 @@ type Message =
   | { type: "sessions.deleteThread"; payload: { threadId: string } }
   | { type: "sessions.clearAll" }
   | { type: "recorder.start"; payload: { tabId: number; domain: string; flow: string } }
+  | { type: "recorder.event"; payload: RawRecorderEvent }
   | { type: "recorder.stop" }
   | { type: "recorder.status" }
+  | { type: "recorder.session.list" }
+  | { type: "recorder.session.get"; payload: { sessionId: string } }
+  | { type: "recorder.session.update"; payload: { sessionId: string; steps: Array<{ id: string; title: string; kept: boolean }> } }
+  | { type: "recorder.session.generate"; payload: { sessionId: string; includeVision?: boolean; includePageSummaries?: boolean } }
+  | { type: "recorder.session.delete"; payload: { sessionId: string } }
+  | { type: "recorder.session.clearAll" }
   | { type: "export.filename"; payload: { mode: "pr" | "ui"; repo?: string; prNumber?: number; domain?: string; ext: "json" | "md" } };
 
 function setBadge(text: string, color = "#d0021b"): void {
@@ -66,6 +92,56 @@ async function requestPrExtract(tabId: number): Promise<PrExtractResult> {
   }
 }
 
+async function injectUiRecorder(tabId: number, active: RecorderActiveState): Promise<void> {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content/ui-recorder.js"]
+  });
+  await chrome.tabs.sendMessage(tabId, {
+    type: "recorder.control",
+    payload: {
+      action: "start",
+      sessionId: active.sessionId,
+      throttleMs: Math.round(1000 / Math.max(1, active.eventThrottlePerSecond))
+    }
+  });
+}
+
+async function requestPageSummary(tabId: number): Promise<RecorderPageSummaryPayload | undefined> {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, {
+      type: "recorder.control",
+      payload: { action: "summarize_page" }
+    }) as { ok?: boolean; summary?: RecorderPageSummaryPayload };
+    return response?.ok ? response.summary : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function shouldCaptureScreenshot(event: RawRecorderEvent): boolean {
+  return ["click", "change", "select", "submit", "navigation"].includes(event.action);
+}
+
+async function maybeCaptureScreenshot(active: RecorderActiveState, session: UiRecorderSession, event: RawRecorderEvent) {
+  if (!active.recordScreenshots) return undefined;
+  if (!shouldCaptureScreenshot(event)) return undefined;
+  if (session.screenshotsCaptured >= active.maxScreenshotsPerSession) return undefined;
+  await new Promise((resolve) => setTimeout(resolve, active.screenshotDelayMs));
+  try {
+    const tab = await chrome.tabs.get(active.tabId);
+    const windowId = typeof tab.windowId === "number" ? tab.windowId : chrome.windows.WINDOW_ID_CURRENT;
+    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "jpeg", quality: 60 });
+    return {
+      id: crypto.randomUUID(),
+      capturedAt: new Date().toISOString(),
+      dataUrl: typeof dataUrl === "string" ? dataUrl : ""
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.local.get("diotest.settings");
   if (!existing["diotest.settings"]) {
@@ -86,9 +162,23 @@ chrome.runtime.onStartup.addListener(async () => {
   }
 });
 
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  void (async () => {
+    if (changeInfo.status !== "complete") return;
+    const restored = await restoreRecorderState();
+    if (!restored.state?.active || restored.state.tabId !== tabId) return;
+    try {
+      await injectUiRecorder(tabId, restored.state);
+    } catch {
+      // ignore reinjection failures on unsupported pages
+    }
+  })();
+});
+
 chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   void (async () => {
-    switch (message.type) {
+    try {
+      switch (message.type) {
       case "settings.load": {
         const settings = await loadSettings();
         sendResponse({ ok: true, settings });
@@ -197,26 +287,145 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
           domain: message.payload.domain,
           name: autoSessionName(message.payload.domain, message.payload.flow)
         };
-        await persistRecorderState({
+        const activeState: RecorderActiveState = {
           active: session.active,
           startedAt: session.startedAt,
           sessionId: session.sessionId,
           tabId: session.tabId,
-          domain: session.domain
-        });
+          domain: session.domain,
+          eventThrottlePerSecond: gate.settings.ui.eventThrottlePerSecond,
+          screenshotDelayMs: gate.settings.ui.screenshotDelayMs,
+          recordScreenshots: gate.settings.ui.recordScreenshots,
+          maxScreenshotsPerSession: gate.settings.ui.maxScreenshotsPerSession,
+          maxSessionStorageMB: gate.settings.ui.maxSessionStorageMB
+        };
+        await persistRecorderState(activeState);
+        const tab = await chrome.tabs.get(message.payload.tabId);
+        await createUiRecorderSession(activeState, session.name, tab.url ?? `https://${session.domain}`);
+        await injectUiRecorder(message.payload.tabId, activeState);
         setBadge("REC");
         sendResponse({ ok: true, session });
         return;
       }
+      case "recorder.event": {
+        const restored = await restoreRecorderState();
+        if (!restored.state?.active || restored.state.sessionId !== message.payload.sessionId) {
+          sendResponse({ ok: false, ignored: true });
+          return;
+        }
+        const currentSession = await getUiRecorderSession(message.payload.sessionId);
+        if (!currentSession) {
+          sendResponse({ ok: false, ignored: true });
+          return;
+        }
+        const screenshot = await maybeCaptureScreenshot(restored.state, currentSession, message.payload);
+        const pageSummary = shouldCaptureScreenshot(message.payload) ? await requestPageSummary(restored.state.tabId) : undefined;
+        const updated = await appendUiRecorderEvent(restored.state, message.payload, screenshot, pageSummary);
+        sendResponse({ ok: true, session: updated });
+        return;
+      }
       case "recorder.stop": {
+        const restored = await restoreRecorderState();
+        const finalPageSummary = restored.state?.active ? await requestPageSummary(restored.state.tabId) : undefined;
+        if (restored.state?.active) {
+          try {
+            await chrome.tabs.sendMessage(restored.state.tabId, { type: "recorder.control", payload: { action: "stop" } });
+          } catch {
+            // ignore tab messaging failures on stop
+          }
+        }
+        let session = restored.state?.sessionId ? await finalizeUiRecorderSession(restored.state.sessionId) : null;
+        if (session && finalPageSummary) {
+          session = await updateUiRecorderSession(session.id, (current) => ({
+            ...current,
+            pageSummaries: [
+              ...(current.pageSummaries ?? []).filter((item) => item.url !== finalPageSummary.url),
+              {
+                id: crypto.randomUUID(),
+                url: finalPageSummary.url,
+                title: finalPageSummary.title,
+                capturedAt: new Date().toISOString(),
+                summary: finalPageSummary.summary,
+                headings: finalPageSummary.headings,
+                actions: finalPageSummary.actions,
+                fields: finalPageSummary.fields,
+                sections: finalPageSummary.sections,
+              }
+            ].slice(-12),
+          }));
+        }
         await clearRecorderState();
         setBadge("");
-        sendResponse({ ok: true });
+        sendResponse({ ok: true, session });
         return;
       }
       case "recorder.status": {
         const restored = await restoreRecorderState();
         sendResponse({ ok: true, state: restored.state, errorCode: restored.errorCode });
+        return;
+      }
+      case "recorder.session.list": {
+        const sessions = await listUiRecorderSessions();
+        sendResponse({ ok: true, sessions });
+        return;
+      }
+      case "recorder.session.get": {
+        const session = await getUiRecorderSession(message.payload.sessionId);
+        sendResponse({ ok: true, session });
+        return;
+      }
+      case "recorder.session.update": {
+        const session = await updateUiRecorderSession(message.payload.sessionId, (current) => ({
+          ...current,
+          steps: current.steps.map((step) => {
+            const update = message.payload.steps.find((item) => item.id === step.id);
+            return update ? { ...step, title: update.title, kept: update.kept } : step;
+          }),
+          status: "review"
+        }));
+        sendResponse({ ok: true, session });
+        return;
+      }
+      case "recorder.session.generate": {
+        const settings = await loadSettings();
+        const session = await getUiRecorderSession(message.payload.sessionId);
+        if (!session) {
+          sendResponse({ ok: false, error: "Recorder session not found." });
+          return;
+        }
+        const options: UiRecorderGenerationOptions = {
+          includeVision: Boolean(message.payload.includeVision),
+          includePageSummaries: message.payload.includePageSummaries !== false,
+        };
+        const generated = await generateUiRecorderArtifacts(settings, session, options);
+        if (!generated.ok) {
+          sendResponse(generated);
+          return;
+        }
+        let updated = await updateUiRecorderSession(message.payload.sessionId, (current) => ({
+          ...current,
+          status: "generated",
+          generated: generated.result
+        }));
+        if (updated) {
+          updated = await setUiRecorderGenerationOptions(message.payload.sessionId, options);
+          updated = await updateUiRecorderSession(message.payload.sessionId, (current) => ({
+            ...current,
+            status: "generated",
+            generated: generated.result,
+          }));
+        }
+        sendResponse({ ok: true, session: updated });
+        return;
+      }
+      case "recorder.session.delete": {
+        const deleted = await deleteUiRecorderSession(message.payload.sessionId);
+        sendResponse({ ok: true, removed: deleted.removed });
+        return;
+      }
+      case "recorder.session.clearAll": {
+        await clearAllUiRecorderSessions();
+        sendResponse({ ok: true });
         return;
       }
       case "export.filename": {
@@ -227,6 +436,17 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
         sendResponse({ ok: true, filename: buildUiSessionExportFilename(message.payload.domain ?? "domain", message.payload.ext) });
         return;
       }
+      }
+      sendResponse({ ok: false, error: "Unsupported message type." });
+    } catch (error) {
+      console.error("DioTest background message failure", {
+        type: (message as { type?: string })?.type,
+        error
+      });
+      sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unexpected background error."
+      });
     }
   })();
 
