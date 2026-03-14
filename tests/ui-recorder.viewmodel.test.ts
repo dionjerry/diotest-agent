@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { recorderNavReducer, sessionsForDomain, type RecorderNavState } from "../extension/sidepanel/lib/recorderView";
-import type { UiRecorderSessionGroup } from "../extension/engine/recorder/types";
+import { recorderNavReducer, sessionsForDomain, type RecorderNavState } from "../apps/extension/sidepanel/lib/recorderView";
+import type { UiRecorderSessionGroup } from "@diotest/domain/recorder/types";
 
 function group(domain: string, sessionIds: string[]): UiRecorderSessionGroup {
   return {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { mergeRecorderEvent, normalizeRecorderEvent } from "../extension/engine/recorder/normalize";
-import type { RawRecorderEvent } from "../extension/engine/recorder/types";
+import { mergeRecorderEvent, normalizeRecorderEvent } from "@diotest/engine/recorder/normalize";
+import type { RawRecorderEvent } from "@diotest/domain/recorder/types";
 
 function event(overrides: Partial<RawRecorderEvent> = {}): RawRecorderEvent {
   return {

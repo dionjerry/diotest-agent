@@ -9,9 +9,9 @@ import {
   groupRunsToThreads,
   listAnalysisSessions,
   saveAnalysisSession
-} from "../extension/engine/sessions/storage";
-import type { AnalysisSessionRun } from "../extension/engine/sessions/types";
-import { ANALYSIS_SESSIONS_KEY } from "../extension/engine/sessions/types";
+} from "../apps/extension/adapters/sessions/storage";
+import type { AnalysisSessionRun } from "@diotest/domain/sessions/types";
+import { ANALYSIS_SESSIONS_KEY } from "@diotest/domain/sessions/types";
 
 function buildRun(id: string, repo: string, ref: string, updatedAt: string): AnalysisSessionRun {
   return {

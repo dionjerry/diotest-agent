@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { filterContextFiles } from "../extension/engine/analysis/contextFilter";
-import { sanitizeAiIssues, sanitizeAiIssuesWithReport } from "../extension/engine/analysis/postprocess";
+import { filterContextFiles } from "@diotest/engine/analysis/contextFilter";
+import { sanitizeAiIssues, sanitizeAiIssuesWithReport } from "@diotest/engine/analysis/postprocess";
 
 describe("analysis context filtering + issue sanitation", () => {
   it("filters generated extension build artifacts from context", () => {
@@ -12,15 +12,15 @@ describe("analysis context filtering + issue sanitation", () => {
       description: "",
       url: "https://github.com/org/repo/commit/abc",
       files: [
-        { path: "extension/background/index.js", source: "github_api" as const },
-        { path: "extension/engine/analysis/orchestrator.ts", source: "github_api" as const }
+        { path: "apps/extension/background/index.js", source: "github_api" as const },
+        { path: "packages/engine/src/analysis/orchestrator.ts", source: "github_api" as const }
       ]
     };
 
     const result = filterContextFiles(context);
     expect(result.removedCount).toBe(1);
     expect(result.context.files).toHaveLength(1);
-    expect(result.context.files[0]?.path).toBe("extension/engine/analysis/orchestrator.ts");
+    expect(result.context.files[0]?.path).toBe("packages/engine/src/analysis/orchestrator.ts");
     expect(result.droppedFilesSummary[0]?.reason).toBe("generated_or_low_signal_artifact");
   });
 

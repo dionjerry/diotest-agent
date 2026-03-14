@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { runAiAnalyze } from "../extension/engine/analysis/orchestrator";
-import { DEFAULT_SETTINGS } from "../extension/engine/settings/defaults";
+import { runAiAnalyze } from "@diotest/engine/analysis/orchestrator";
+import { DEFAULT_SETTINGS } from "@diotest/domain/settings/defaults";
 
 describe("analysis gating", () => {
   it("blocks when OpenAI key is missing", async () => {

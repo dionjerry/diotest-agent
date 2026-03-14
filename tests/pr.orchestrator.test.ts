@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { runPrAnalyze } from "../engine/pr/orchestrator";
-import { DEFAULT_SETTINGS } from "../engine/settings/defaults";
+import { runPrAnalyze } from "@diotest/engine/pr/orchestrator";
+import { DEFAULT_SETTINGS } from "@diotest/domain/settings/defaults";
 
 describe("pr analyze orchestration", () => {
   it("returns extracted context when settings are valid", async () => {

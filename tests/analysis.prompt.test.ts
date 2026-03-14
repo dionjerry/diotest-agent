@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSystemPrompt, buildUserPrompt } from "../extension/engine/prompts/v1";
+import { buildSystemPrompt, buildUserPrompt } from "@diotest/engine/prompts/v1";
 
 describe("analysis prompt constraints", () => {
   it("requires explicit manual-case rationale and evidence in prompts", () => {

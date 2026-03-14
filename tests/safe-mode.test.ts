@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { assertSettingsForExecution } from "../engine/runtime/gating";
-import { DEFAULT_SETTINGS } from "../engine/settings/defaults";
+import { assertSettingsForExecution } from "@diotest/engine/runtime/gating";
+import { DEFAULT_SETTINGS } from "@diotest/domain/settings/defaults";
 
 describe("safe mode", () => {
   it("disables recorder screenshots, api fallback, and telemetry", () => {

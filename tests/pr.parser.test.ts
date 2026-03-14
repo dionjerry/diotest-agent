@@ -6,7 +6,7 @@ import {
   normalizePrContext,
   parseRepoAndCommitSha,
   parseRepoAndPrNumber
-} from "../engine/pr/parser";
+} from "@diotest/engine/pr/parser";
 
 describe("pr parser", () => {
   it("detects github PR URLs", () => {
