@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateTokens, summarizeContext } from "../extension/engine/analysis/summarize";
+import { estimateTokens, summarizeContext } from "@diotest/engine/analysis/summarize";
 
 describe("analysis summarize", () => {
   it("estimates tokens", () => {

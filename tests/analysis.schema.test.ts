@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidAiAnalysisResult } from "../extension/engine/analysis/schema";
+import { isValidAiAnalysisResult } from "@diotest/domain/analysis/schema";
 
 describe("analysis schema validator", () => {
   it("accepts valid payload", () => {

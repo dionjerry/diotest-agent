@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPrExportFilename, buildUiSessionExportFilename } from "../engine/exports/naming";
+import { buildPrExportFilename, buildUiSessionExportFilename } from "@diotest/renderers/exports/naming";
 
 describe("export naming conventions", () => {
   it("formats PR filenames", () => {

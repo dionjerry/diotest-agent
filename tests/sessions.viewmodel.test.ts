@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { AnalysisSessionThread } from "../extension/engine/sessions/types";
-import { buildRepoGroups, buildRunsForRepo, sessionsNavReducer } from "../extension/sidepanel/lib/sessionsView";
-import type { SessionsNavState } from "../extension/sidepanel/lib/sessionsView";
+import type { AnalysisSessionThread } from "@diotest/domain/sessions/types";
+import { buildRepoGroups, buildRunsForRepo, sessionsNavReducer } from "../apps/extension/sidepanel/lib/sessionsView";
+import type { SessionsNavState } from "../apps/extension/sidepanel/lib/sessionsView";
 
 function thread(repo: string, ref: string, lastUpdatedAt: string, runIds: string[]): AnalysisSessionThread {
   return {

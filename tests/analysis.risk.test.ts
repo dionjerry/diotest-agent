@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blendRiskScores, computeDeterministicRiskScore } from "../extension/engine/analysis/risk";
+import { blendRiskScores, computeDeterministicRiskScore } from "@diotest/engine/analysis/risk";
 
 describe("analysis deterministic risk scoring", () => {
   it("scores broad runtime/config commits higher than low single-file edits", () => {

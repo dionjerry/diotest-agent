@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS } from "../engine/settings/defaults";
-import { migrateSettings } from "../engine/settings/migration";
+import { DEFAULT_SETTINGS } from "@diotest/domain/settings/defaults";
+import { migrateSettings } from "@diotest/domain/settings/migration";
 
 describe("settings migration", () => {
   it("fills defaults and preserves existing values", () => {

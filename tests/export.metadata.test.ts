@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS } from "../engine/settings/defaults";
-import { toSafeSettingsProfile } from "../engine/exports/metadata";
+import { DEFAULT_SETTINGS } from "@diotest/domain/settings/defaults";
+import { toSafeSettingsProfile } from "@diotest/renderers/exports/metadata";
 
 describe("export metadata safety", () => {
   it("contains only non-sensitive settings", () => {

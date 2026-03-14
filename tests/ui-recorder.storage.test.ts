@@ -8,8 +8,8 @@ import {
   getUiRecorderSession,
   listUiRecorderSessions,
   updateUiRecorderSession,
-} from "../extension/engine/recorder/storage";
-import { UI_RECORDER_SESSIONS_KEY, type RawRecorderEvent, type RecorderActiveState } from "../extension/engine/recorder/types";
+} from "../apps/extension/adapters/recorder/storage";
+import { UI_RECORDER_SESSIONS_KEY, type RawRecorderEvent, type RecorderActiveState } from "@diotest/domain/recorder/types";
 
 function activeState(overrides: Partial<RecorderActiveState> = {}): RecorderActiveState {
   return {

@@ -71,8 +71,8 @@ What works today:
 ## Product Direction
 
 - **Now:** Browser extension for PR review plus exploratory UI session-to-test generation.
-- **Next:** IDE-focused testing workspace that combines code, changed surfaces, recorder sessions, and generated tests in one flow.
-- **Later:** Optional hosted analysis jobs, organization policies, and integration connectors.
+- **Next:** Cloud-backed DioTest platform with extension cloud mode, shared engine APIs, MCP support, and a web dashboard.
+- **Later:** Hosted and self-hosted deployment options, organization policies, background jobs, and IDE-focused workflows.
 
 ## Stack
 
@@ -80,6 +80,55 @@ What works today:
 - MV3 extension runtime (content script + service worker + side panel)
 - OpenAI-backed structured generation with text and optional multimodal recorder inputs
 - Vitest + ESLint + TypeScript checks
+- `pnpm` workspace layout with shared packages for future SaaS, MCP, and web surfaces
+
+## Workspace Layout
+
+```text
+packages/
+  domain/
+  engine/
+  providers/
+  renderers/
+apps/
+  extension/
+  api/
+  web/
+  mcp-server/
+```
+
+The Chrome extension now lives under [`apps/extension`](apps/extension). Shared logic is extracted into `packages/*` so the same engine can later power the hosted cloud product, self-hosted deployments, MCP tools, and a web dashboard.
+
+## Install The Extension
+
+### Unpacked extension for development
+
+1. Install dependencies:
+   - `pnpm install`
+   - or `npm install`
+2. Build the extension:
+   - `pnpm build`
+   - or `npm run build`
+3. Open `chrome://extensions`
+4. Enable `Developer mode`
+5. Click `Load unpacked`
+6. Select [`apps/extension`](apps/extension)
+
+Chrome will load the built manifest from [`apps/extension/manifest.json`](apps/extension/manifest.json).
+
+### Packed extension
+
+For internal distribution, you can also package the built contents of [`apps/extension`](apps/extension):
+
+1. Build the extension
+2. Open `chrome://extensions`
+3. Click `Pack extension`
+4. Choose [`apps/extension`](apps/extension) as the extension root
+
+Notes:
+- A packed `.crx` is reasonable for internal testing and controlled distribution.
+- Public Chrome Web Store distribution is the cleaner path for broader release.
+- The repo is set up first for unpacked development loading.
 
 ## Scripts
 
@@ -107,6 +156,18 @@ What works today:
 - No cloud storage or sync backend
 - No autonomous full-site crawling beyond pages the user actually visited
 - No autonomous test execution
+
+## Planned Next Features
+
+Near-term platform work after the MVP extension:
+
+- Extension cloud mode in addition to local mode
+- Shared API surface on top of `@diotest/engine`
+- MCP server for agent and IDE workflows
+- Web dashboard for sessions, outputs, and team usage
+- Hosted DioTest cloud deployment
+- Self-hosted deployment path for teams that need local control
+- Additional provider support such as Anthropic
 
 ## Learn More
 

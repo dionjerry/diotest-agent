@@ -4,7 +4,7 @@ import tsPlugin from "@typescript-eslint/eslint-plugin";
 export default [
   {
     files: ["**/*.{ts,tsx,js,jsx}"],
-    ignores: ["dist/**", "node_modules/**", "extension/**/*.js", "tests/**/*.js", "engine/**/*.js"],
+    ignores: ["dist/**", "node_modules/**", "apps/extension/**/*.js", "tests/**/*.js", "engine/**/*.js"],
     languageOptions: {
       parser: tsParser,
       ecmaVersion: "latest",

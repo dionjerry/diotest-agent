@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS } from "../engine/settings/defaults";
-import { validateSettings } from "../engine/settings/validation";
+import { DEFAULT_SETTINGS } from "@diotest/domain/settings/defaults";
+import { validateSettings } from "@diotest/domain/settings/validation";
 
 describe("settings range validation", () => {
   it("accepts defaults", () => {

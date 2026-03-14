@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS } from "../extension/engine/settings/defaults";
-import type { UiRecorderGenerationResult, UiRecorderSession } from "../extension/engine/recorder/types";
+import { DEFAULT_SETTINGS } from "@diotest/domain/settings/defaults";
+import type { UiRecorderGenerationResult, UiRecorderSession } from "@diotest/domain/recorder/types";
 
-vi.mock("../extension/engine/providers/openai", () => ({
+vi.mock("@diotest/providers/openai", () => ({
   generateStructured: vi.fn(),
 }));
 
-import { generateStructured } from "../extension/engine/providers/openai";
-import { generateUiRecorderArtifacts } from "../extension/engine/recorder/orchestrator";
+import { generateStructured } from "@diotest/providers/openai";
+import { generateUiRecorderArtifacts } from "@diotest/engine/recorder/orchestrator";
 
 const validResult: UiRecorderGenerationResult = {
   manual_test_cases: [
