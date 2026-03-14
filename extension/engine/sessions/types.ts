@@ -10,6 +10,7 @@ export interface AnalysisSessionRun {
   updatedAt: string;
   repo: string;
   ref: string;
+  title?: string;
   pageType: ExtractionContext["pageType"];
   url: string;
   mode: AnalysisMode;

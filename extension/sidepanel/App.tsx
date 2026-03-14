@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { SettingsLatest } from "../engine/settings/types";
 import { DEFAULT_SETTINGS } from "../engine/settings/defaults";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -8,6 +8,7 @@ import type { AiAnalysisResultV1, AnalyzeDebug, AnalysisMode } from "../engine/a
 import { CodeViewer } from "./components/CodeViewer";
 import { Checkbox } from "./components/ui/checkbox";
 import type { AnalysisSessionRun, AnalysisSessionThread } from "../engine/sessions/types";
+import { buildRepoGroups, buildRunsForRepo, sessionsNavReducer } from "./lib/sessionsView";
 
 function formatElapsed(startedAt: string): string {
   const delta = Math.max(0, Date.now() - new Date(startedAt).getTime());
@@ -26,47 +27,84 @@ async function resolveAnalysisTabId(): Promise<number | null> {
   if (active?.id && active.url && !active.url.startsWith("extension://")) {
     return active.id;
   }
-
   const stored = await chrome.storage.local.get("diotest.ui.sourceTabId");
   const sourceTabId = stored["diotest.ui.sourceTabId"] as number | undefined;
   if (sourceTabId) {
     try {
       const tab = await chrome.tabs.get(sourceTabId);
-      if (tab?.id && tab.url?.startsWith("https://github.com/")) {
-        return tab.id;
-      }
-    } catch {
-      // ignore stale tab id
-    }
+      if (tab?.id && tab.url?.startsWith("https://github.com/")) return tab.id;
+    } catch { /* ignore stale */ }
   }
-
-  const githubTabs = await chrome.tabs.query({ currentWindow: true, url: ["https://github.com/*/*/pull/*", "https://github.com/*/*/commit/*"] });
+  const githubTabs = await chrome.tabs.query({
+    currentWindow: true,
+    url: ["https://github.com/*/*/pull/*", "https://github.com/*/*/commit/*"],
+  });
   return githubTabs[0]?.id ?? null;
 }
 
+function getRiskClass(score: number): string {
+  if (score >= 7) return "score-high";
+  if (score >= 4) return "score-medium";
+  return "score-low";
+}
+
+function getRiskLabel(score: number): string {
+  if (score >= 7) return "High risk";
+  if (score >= 4) return "Medium risk";
+  return "Low risk";
+}
+
+function cleanSessionTitle(title?: string): string | null {
+  if (!title) return null;
+  const normalized = title.trim();
+  if (!normalized) return null;
+  if (/^search code, repositories, users, issues, pull requests\.\.\.$/i.test(normalized)) return null;
+  return normalized;
+}
+
+// ── Copy button with "Copied!" feedback ──
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  async function handleCopy() {
+    await copyText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+  return (
+    <button className={`manual-case-copy${copied ? " copied" : ""}`} onClick={() => void handleCopy()}>
+      {copied ? "Copied!" : label}
+    </button>
+  );
+}
+
+// ── Model options including Claude ──
+const MODEL_OPTIONS = [
+  { group: "Anthropic", options: ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"] },
+  { group: "OpenAI",    options: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"] },
+] as const;
+
 export default function App() {
-  const [settings, setSettings] = useState<SettingsLatest>(DEFAULT_SETTINGS);
-  const [tab, setTab] = useState<"review" | "sessions" | "settings">("review");
-  const [recorder, setRecorder] = useState<{ active: boolean; startedAt?: string; domain?: string }>({ active: false });
-  const [analysis, setAnalysis] = useState<AiAnalysisResultV1 | null>(null);
-  const [debug, setDebug] = useState<AnalyzeDebug | null>(null);
-  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
+  const [settings, setSettings]             = useState<SettingsLatest>(DEFAULT_SETTINGS);
+  const [tab, setTab]                       = useState<"review" | "sessions" | "settings">("review");
+  const [recorder, setRecorder]             = useState<{ active: boolean; startedAt?: string; domain?: string }>({ active: false });
+  const [analysis, setAnalysis]             = useState<AiAnalysisResultV1 | null>(null);
+  const [debug, setDebug]                   = useState<AnalyzeDebug | null>(null);
+  const [analyzeError, setAnalyzeError]     = useState<string | null>(null);
+  const [analyzing, setAnalyzing]           = useState(false);
   const [includeDeepScan, setIncludeDeepScan] = useState(false);
   const [isDebugExpanded, setIsDebugExpanded] = useState(false);
-  const [isPromptExpanded, setIsPromptExpanded] = useState(false);
+  const [isPromptExpanded, setIsPromptExpanded]   = useState(false);
   const [isContextExpanded, setIsContextExpanded] = useState(false);
+  const [isTrustExpanded, setIsTrustExpanded]     = useState(false);
   const [sessionThreads, setSessionThreads] = useState<AnalysisSessionThread[]>([]);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
-  const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
   const [selectedSession, setSelectedSession] = useState<AnalysisSessionRun | null>(null);
+  const [sessionsNav, dispatchSessionsNav] = useReducer(sessionsNavReducer, {
+    mode: "repos",
+    selectedRepo: null,
+    selectedSessionId: null,
+  });
   const debugDetailsRef = useRef<HTMLDivElement | null>(null);
-
-  const modelOptions = ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"] as const;
-  const totalSavedRuns = useMemo(
-    () => sessionThreads.reduce((total, thread) => total + thread.runCount, 0),
-    [sessionThreads]
-  );
 
   useEffect(() => {
     void (async () => {
@@ -75,25 +113,16 @@ export default function App() {
         setSettings(loaded.settings);
         setIncludeDeepScan(loaded.settings.analysis.deepScanDefault);
       }
-
       const status = await sendMessage<{ ok: boolean; state: { active: boolean; startedAt: string; domain: string } | null }>({ type: "recorder.status" });
       if (status.ok && status.state) {
         setRecorder({ active: status.state.active, startedAt: status.state.startedAt, domain: status.state.domain });
       }
-
       const intentData = await chrome.storage.local.get("diotest.ui.intent");
       const intent = intentData["diotest.ui.intent"] as "review" | "review_analyze" | "settings" | undefined;
-      if (intent === "settings") {
-        setTab("settings");
-      } else {
-        setTab("review");
-      }
-      if (intent === "review_analyze") {
-        await runAnalysis(loaded.ok ? loaded.settings.analysis.deepScanDefault : false);
-      }
-      if (intent) {
-        await chrome.storage.local.remove("diotest.ui.intent");
-      }
+      if (intent === "settings") setTab("settings");
+      else setTab("review");
+      if (intent === "review_analyze") await runAnalysis(loaded.ok ? loaded.settings.analysis.deepScanDefault : false);
+      if (intent) await chrome.storage.local.remove("diotest.ui.intent");
       await refreshSessions();
     })();
   }, []);
@@ -105,12 +134,22 @@ export default function App() {
   }, [recorder.active]);
 
   useEffect(() => {
-    if (isDebugExpanded) {
-      debugDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
+    if (isDebugExpanded) debugDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [isDebugExpanded]);
 
-  const recordingTime = useMemo(() => (recorder.startedAt ? formatElapsed(recorder.startedAt) : "00:00"), [recorder]);
+  const recordingTime = useMemo(
+    () => (recorder.startedAt ? formatElapsed(recorder.startedAt) : "00:00"),
+    [recorder]
+  );
+  const totalSavedRuns = useMemo(
+    () => sessionThreads.reduce((total, thread) => total + thread.runCount, 0),
+    [sessionThreads]
+  );
+  const repoGroups = useMemo(() => buildRepoGroups(sessionThreads), [sessionThreads]);
+  const runsForSelectedRepo = useMemo(
+    () => buildRunsForRepo(sessionThreads, sessionsNav.selectedRepo),
+    [sessionThreads, sessionsNav.selectedRepo]
+  );
 
   async function refreshSessions() {
     const sessions = await sendMessage<{ ok: boolean; threads?: AnalysisSessionThread[] }>({ type: "sessions.list" });
@@ -125,40 +164,61 @@ export default function App() {
     if (selectedSession) {
       const current = sessions.threads.flatMap((thread) => thread.runs).find((run) => run.id === selectedSession.id) ?? null;
       setSelectedSession(current);
+      dispatchSessionsNav({
+        type: "sync",
+        sessionExists: !!current,
+        repoHasRuns: buildRunsForRepo(sessions.threads, sessionsNav.selectedRepo).length > 0,
+      });
+      return;
     }
+
+    dispatchSessionsNav({
+      type: "sync",
+      sessionExists: false,
+      repoHasRuns: buildRunsForRepo(sessions.threads, sessionsNav.selectedRepo).length > 0,
+    });
   }
 
   async function openSession(sessionId: string) {
     const response = await sendMessage<{ ok: boolean; session: AnalysisSessionRun | null }>({
       type: "sessions.get",
-      payload: { sessionId }
+      payload: { sessionId },
     });
     if (!response.ok) {
       setSessionsError("Could not open selected session.");
       return;
     }
+
     setSelectedSession(response.session);
+    if (response.session) {
+      dispatchSessionsNav({ type: "open_session", sessionId: response.session.id });
+    }
   }
 
   async function deleteRun(sessionId: string) {
+    if (!confirm("Delete this saved run?")) return;
     await sendMessage({ type: "sessions.deleteRun", payload: { sessionId } });
     if (selectedSession?.id === sessionId) {
       setSelectedSession(null);
+      dispatchSessionsNav({ type: "back" });
     }
     await refreshSessions();
   }
 
-  async function deleteThread(threadId: string) {
-    await sendMessage({ type: "sessions.deleteThread", payload: { threadId } });
-    if (selectedSession?.threadId === threadId) {
-      setSelectedSession(null);
-    }
+  async function deleteRepoThread(repo: string) {
+    if (!confirm(`Delete all saved runs for ${repo}?`)) return;
+    const repoThreadIds = sessionThreads.filter((thread) => thread.repo === repo).map((thread) => thread.threadId);
+    await Promise.all(repoThreadIds.map((threadId) => sendMessage({ type: "sessions.deleteThread", payload: { threadId } })));
+    setSelectedSession(null);
+    dispatchSessionsNav({ type: "reset" });
     await refreshSessions();
   }
 
   async function clearAllSessions() {
+    if (!confirm("Clear all saved analysis sessions?")) return;
     await sendMessage({ type: "sessions.clearAll" });
     setSelectedSession(null);
+    dispatchSessionsNav({ type: "reset" });
     await refreshSessions();
   }
 
@@ -167,33 +227,21 @@ export default function App() {
     setAnalyzeError(null);
     setAnalysis(null);
     setDebug(null);
-
+    setIsTrustExpanded(false);
+    setIsDebugExpanded(false);
     try {
       const targetTabId = await resolveAnalysisTabId();
       if (!targetTabId) {
         setAnalyzeError("Open a GitHub PR or commit page, then run Analyze.");
         return;
       }
-
       const deepScan = typeof scanOverride === "boolean" ? scanOverride : includeDeepScan;
       const mode: AnalysisMode = deepScan ? "pr_commit_deep_scan" : "pr_commit";
       const result = await sendMessage<
         | { ok: false; error: string }
-        | { ok: true; result: AiAnalysisResultV1; debug: AnalyzeDebug; session_id?: string }
-      >({
-        type: "analysis.run",
-        payload: {
-          tabId: targetTabId,
-          mode,
-          includeDeepScan: deepScan
-        }
-      });
-
-      if (!result.ok) {
-        setAnalyzeError(result.error);
-        return;
-      }
-
+        | { ok: true; result: AiAnalysisResultV1; debug: AnalyzeDebug }
+      >({ type: "analysis.run", payload: { tabId: targetTabId, mode, includeDeepScan: deepScan } });
+      if (!result.ok) { setAnalyzeError(result.error); return; }
       setAnalysis(result.result);
       setDebug(result.debug);
       await refreshSessions();
@@ -205,17 +253,11 @@ export default function App() {
   async function onChangeModel(model: string) {
     const next = structuredClone(settings);
     next.analysis.model = model;
-
     const result = await sendMessage<{ ok: boolean; settings?: SettingsLatest; errors?: Record<string, string> }>({
       type: "settings.save",
-      payload: next
+      payload: next,
     });
-
-    if (result.ok && result.settings) {
-      setSettings(result.settings);
-      return;
-    }
-
+    if (result.ok && result.settings) { setSettings(result.settings); return; }
     setAnalyzeError("Could not save model selection. Check Settings.");
   }
 
@@ -225,11 +267,9 @@ export default function App() {
     const domain = new URL(active.url).hostname;
     const res = await sendMessage<{ ok: boolean; session?: { startedAt: string; domain: string }; error?: string }>({
       type: "recorder.start",
-      payload: { tabId: active.id, domain, flow: "Recorded Flow" }
+      payload: { tabId: active.id, domain, flow: "Recorded Flow" },
     });
-    if (res.ok && res.session) {
-      setRecorder({ active: true, startedAt: res.session.startedAt, domain: res.session.domain });
-    }
+    if (res.ok && res.session) setRecorder({ active: true, startedAt: res.session.startedAt, domain: res.session.domain });
   }
 
   async function stopRecorder() {
@@ -237,125 +277,238 @@ export default function App() {
     setRecorder({ active: false });
   }
 
+  // Build flat test plan list for cleaner rendering
+  const testPlanItems = useMemo(() => {
+    if (!analysis) return [];
+    return [
+      ...analysis.test_plan.unit.map((t) => ({ ...t, type: "unit" as const })),
+      ...analysis.test_plan.integration.map((t) => ({ ...t, type: "integration" as const })),
+      ...analysis.test_plan.e2e.map((t) => ({ ...t, type: "e2e" as const })),
+    ];
+  }, [analysis]);
+
+  const scoreClass = analysis ? getRiskClass(analysis.risk_score) : "score-low";
+  const scoreLabel = analysis ? getRiskLabel(analysis.risk_score) : "";
+
   return (
     <main className="app-shell">
+      {/* Header */}
       <header className="app-header">
         <div className="brand-wrap">
           <h1 className="app-title">DioTest</h1>
-          <p className="app-subtitle">AI-first analysis for PR/commit context</p>
+          <p className="app-subtitle">AI-first PR analysis</p>
         </div>
         <span className="brand-badge">Community</span>
       </header>
 
+      {/* Tabs */}
       <nav className="tab-row" aria-label="DioTest sections">
-        <Button className="tab-pill" variant={tab === "review" ? "default" : "secondary"} onClick={() => setTab("review")}>Review</Button>
-        <Button className="tab-pill" variant={tab === "sessions" ? "default" : "secondary"} onClick={() => setTab("sessions")}>Sessions</Button>
-        <Button className="tab-pill" variant={tab === "settings" ? "default" : "secondary"} onClick={() => setTab("settings")}>Settings</Button>
+        <Button
+          className="tab-pill"
+          variant={tab === "review" ? "default" : "ghost"}
+          onClick={() => setTab("review")}
+        >
+          Review
+        </Button>
+        <Button
+          className="tab-pill"
+          variant={tab === "sessions" ? "default" : "ghost"}
+          onClick={() => setTab("sessions")}
+        >
+          Sessions
+        </Button>
+        <Button
+          className="tab-pill"
+          variant={tab === "settings" ? "default" : "ghost"}
+          onClick={() => setTab("settings")}
+        >
+          Settings
+        </Button>
       </nav>
 
+      {/* Content */}
       <section className="content-scroll">
-        {tab === "review" ? (
-          <section className="section-stack">
-            <div className="control-bar panel-card">
-              <div className="toggle-wrap">
-                <label className="toggle-row">
-                  <Checkbox checked={includeDeepScan} onChange={(e) => setIncludeDeepScan(e.target.checked)} />
-                  <span>Include Repo Deep Scan (GitHub API)</span>
+
+        {/* ── REVIEW TAB ── */}
+        {tab === "review" && (
+          <div className="section-stack">
+
+            {/* Analyze bar */}
+            <div className="panel-card">
+              <div className="analyze-bar">
+                <div className="analyze-top-row">
+                  <Button
+                    className="analyze-btn"
+                    onClick={() => void runAnalysis()}
+                    disabled={analyzing}
+                  >
+                    {analyzing ? "Analyzing…" : "Analyze PR / Commit"}
+                  </Button>
+                  <select
+                    className="model-select"
+                    value={settings.analysis.model}
+                    onChange={(e) => void onChangeModel(e.target.value)}
+                  >
+                    {MODEL_OPTIONS.map(({ group, options }) => (
+                      <optgroup key={group} label={group}>
+                        {options.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+                <label className="deep-scan-row">
+                  <Checkbox
+                    checked={includeDeepScan}
+                    onChange={(e) => setIncludeDeepScan(e.target.checked)}
+                  />
+                  <span className="deep-scan-label">Include deep scan</span>
+                  <span className="deep-scan-hint">+GitHub API context</span>
                 </label>
-                <p className="toggle-help">
-                  Recommended for better accuracy on large/truncated diffs. Deep Scan fetches full file context from GitHub API, improves
-                  evidence quality, and reduces false positives. For private repositories, add a GitHub token in Settings.
-                </p>
               </div>
-              <label className="model-select-wrap">
-                <span>Model</span>
-                <select value={settings.analysis.model} onChange={(e) => void onChangeModel(e.target.value)}>
-                  {modelOptions.map((model) => (
-                    <option key={model} value={model}>{model}</option>
-                  ))}
-                </select>
-              </label>
-              <Button onClick={() => void runAnalysis()} disabled={analyzing} className="analyze-btn">
-                {analyzing ? "Analyzing..." : "Analyze PR/Commit"}
-              </Button>
             </div>
 
-            {analyzeError ? <div className="warning-banner">{analyzeError}</div> : null}
+            {/* Error */}
+            {analyzeError && <div className="warning-banner">{analyzeError}</div>}
 
-            {analysis ? (
+            {/* Analyzing state */}
+            {analyzing && (
+              <div className="panel-card">
+                <div className="analyzing-state">
+                  <div className="spinner" />
+                  <span className="analyzing-label">Running analysis…</span>
+                </div>
+              </div>
+            )}
+
+            {/* Results */}
+            {analysis && !analyzing && (
               <>
+                {/* Status chips */}
                 <div className="status-chip-row">
                   <span className="chip">Coverage: {analysis.meta.coverage_level}</span>
                   <span className={`chip quality-${debug?.request_inspector.analysis_quality ?? "full"}`}>
                     Quality: {debug?.request_inspector.analysis_quality ?? "full"}
                   </span>
-                  <span className="chip">Files sent: {debug?.request_inspector.files_sent_to_ai ?? 0}</span>
-                  <span className="chip">Token est: {debug?.token_estimate ?? 0}</span>
+                  <span className="chip">Files: {debug?.request_inspector.files_sent_to_ai ?? 0}</span>
+                  <span className="chip">~{debug?.token_estimate ?? 0} tokens</span>
                 </div>
 
-                <article className="panel-card">
+                {/* Risk */}
+                <div className="panel-card">
                   <h3>Risk</h3>
-                  <p className="metric-line">Score: {analysis.risk_score.toFixed(1)} / 10</p>
-                  <p className="muted-wrap">Interpretation: lower score means lower estimated regression risk.</p>
-                  <ul className="clean-list">
-                    {analysis.risk_areas.map((risk, idx) => (
-                      <li key={`${risk.area}-${idx}`} className="risk-item">
-                        <span className={`severity-badge severity-${risk.severity}`}>{risk.severity.toUpperCase()}</span> {risk.area}
-                        <div className="risk-why">{risk.why}</div>
-                        <div className="muted-wrap">{risk.evidence_files.join(", ")}</div>
-                      </li>
-                    ))}
-                  </ul>
-                </article>
-
-                <article className="panel-card">
-                  <h3>Test Plan</h3>
-                  <div className="plan-grid">
-                    <section className="plan-group">
-                      <h4>Unit</h4>
-                      <ul className="clean-list">{analysis.test_plan.unit.map((t, i) => <li key={`u-${i}`}>{t.title}</li>)}</ul>
-                    </section>
-                    <section className="plan-group">
-                      <h4>Integration</h4>
-                      <ul className="clean-list">{analysis.test_plan.integration.map((t, i) => <li key={`i-${i}`}>{t.title}</li>)}</ul>
-                    </section>
-                    <section className="plan-group">
-                      <h4>E2E</h4>
-                      <ul className="clean-list">{analysis.test_plan.e2e.map((t, i) => <li key={`e-${i}`}>{t.title}</li>)}</ul>
-                    </section>
+                  <div className="risk-score-block">
+                    <div className={`risk-score-number ${scoreClass}`}>
+                      {analysis.risk_score.toFixed(1)}
+                    </div>
+                    <div className="risk-score-meta">
+                      <span className="risk-score-label">{scoreLabel}</span>
+                      <div className="risk-score-bar">
+                        <div
+                          className={`risk-score-fill ${scoreClass}`}
+                          style={{ width: `${(analysis.risk_score / 10) * 100}%` }}
+                        />
+                      </div>
+                    </div>
                   </div>
-                </article>
 
-                <article className="panel-card">
-                  <h3>Manual Cases</h3>
-                  <ul className="clean-list">
-                    {analysis.manual_test_cases.map((tc) => (
-                      <li key={tc.id} className="risk-item">
-                        <strong>{tc.id}:</strong> {tc.title}
-                        <div className="risk-why">
-                          Why this is suggested: {(tc as { why?: string }).why ?? "Suggested from changed-file risk context."}
+                  {/* Trust signal — AI vs deterministic */}
+                  {debug?.risk_formula && (
+                    <>
+                      <div className="trust-row" onClick={() => setIsTrustExpanded((v) => !v)}>
+                        <span className="trust-label">Why this score</span>
+                        <span className={`trust-pill trust-ai`}>AI {debug.risk_formula.ai_score.toFixed(1)}</span>
+                        <span className="trust-sep">+</span>
+                        <span className={`trust-pill trust-det`}>Rules {debug.risk_formula.deterministic_score.toFixed(1)}</span>
+                        <span className="trust-arrow">{isTrustExpanded ? "▲" : "▼"}</span>
+                      </div>
+                      {isTrustExpanded && (
+                        <div className="trust-drivers">
+                          {debug.risk_formula.drivers.map((d, i) => (
+                            <div key={i} className="trust-driver">{d}</div>
+                          ))}
                         </div>
-                        <div className="muted-wrap">
-                          Evidence: {((tc as { evidence_files?: string[] }).evidence_files ?? []).join(", ") || "No direct file evidence"}
+                      )}
+                    </>
+                  )}
+
+                  <div className="risk-list">
+                    {analysis.risk_areas.map((risk, idx) => (
+                      <div key={`${risk.area}-${idx}`} className="risk-item">
+                        <div className="risk-item-header">
+                          <span className={`severity-badge severity-${risk.severity}`}>
+                            {risk.severity.toUpperCase()}
+                          </span>
+                          <span className="risk-area-name">{risk.area}</span>
                         </div>
-                      </li>
+                        <div className="risk-why">{risk.why}</div>
+                        {risk.evidence_files.length > 0 && (
+                          <div className="risk-files">{risk.evidence_files.join(", ")}</div>
+                        )}
+                      </div>
                     ))}
-                  </ul>
-                </article>
+                  </div>
+                </div>
 
-                <article className="panel-card">
+                {/* Test Plan */}
+                <div className="panel-card">
+                  <h3>Test Plan</h3>
+                  <div className="test-plan-list">
+                    {testPlanItems.map((item, i) => (
+                      <div key={i} className="test-plan-item">
+                        <span className={`test-type-tag tag-${item.type}`}>
+                          {item.type === "e2e" ? "E2E" : item.type === "unit" ? "Unit" : "Integ."}
+                        </span>
+                        <span className="test-item-title">{item.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Manual Cases */}
+                <div className="panel-card">
+                  <h3>Manual Cases</h3>
+                  <div className="manual-list">
+                    {analysis.manual_test_cases.map((tc) => {
+                      const why = (tc as { why?: string }).why;
+                      const files = (tc as { evidence_files?: string[] }).evidence_files ?? [];
+                      const copyContent = [
+                        `**${tc.id}: ${tc.title}**`,
+                        why && why !== "Suggested from changed-file risk context." ? `Why: ${why}` : "",
+                        files.length ? `Evidence: ${files.join(", ")}` : "",
+                      ].filter(Boolean).join("\n");
+
+                      return (
+                        <div key={tc.id} className="manual-case">
+                          <div className="manual-case-header">
+                            <span className="manual-case-id">{tc.id}</span>
+                            <span className="manual-case-title">{tc.title}</span>
+                            <CopyButton text={copyContent} />
+                          </div>
+                          {why && why !== "Suggested from changed-file risk context." && (
+                            <div className="manual-case-why">{why}</div>
+                          )}
+                          {files.length > 0 && (
+                            <div className="manual-case-files">{files.join(", ")}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Debug */}
+                <div className="panel-card">
                   <div className="panel-head-row">
-                    <h3>Debug</h3>
+                    <h3 style={{ marginBottom: 0 }}>Debug</h3>
                     <Button
-                      variant="secondary"
+                      variant="ghost"
                       aria-expanded={isDebugExpanded}
                       onClick={() => {
                         setIsDebugExpanded((v) => {
                           const next = !v;
-                          if (!next) {
-                            setIsPromptExpanded(false);
-                            setIsContextExpanded(false);
-                          }
+                          if (!next) { setIsPromptExpanded(false); setIsContextExpanded(false); }
                           return next;
                         });
                       }}
@@ -364,223 +517,317 @@ export default function App() {
                     </Button>
                   </div>
 
-                  {debug ? (
-                    <div className="debug-grid">
-                      <p><strong>Mode:</strong> {debug.request_inspector.mode}</p>
-                      <p><strong>Page:</strong> {debug.request_inspector.page_type}</p>
-                      <p><strong>Repo:</strong> {debug.request_inspector.repo}</p>
-                      <p><strong>Ref:</strong> {debug.request_inspector.ref}</p>
-                      <p><strong>Files detected:</strong> {debug.request_inspector.files_detected}</p>
-                      <p><strong>Files sent:</strong> {debug.request_inspector.files_sent_to_ai}</p>
-                      <p><strong>Deep scan requested:</strong> {String(debug.request_inspector.deep_scan_requested)}</p>
-                      <p><strong>Deep scan used:</strong> {String(debug.request_inspector.deep_scan_used)}</p>
-                      <p><strong>Extraction source:</strong> {debug.request_inspector.extraction_source}</p>
-                      <p><strong>Analysis quality:</strong> {debug.request_inspector.analysis_quality}</p>
-                      <p><strong>Manual cases generated:</strong> {debug.request_inspector.manual_cases_generated}</p>
-                      <p><strong>Manual cases kept:</strong> {debug.request_inspector.manual_cases_kept}</p>
-                      <p><strong>Screenshots sent:</strong> {String(debug.request_inspector.screenshots_sent)}</p>
+                  {debug && (
+                    <div className="debug-grid" style={{ marginTop: 10 }}>
+                      <div className="debug-row"><span className="debug-key">Mode</span><span className="debug-val">{debug.request_inspector.mode}</span></div>
+                      <div className="debug-row"><span className="debug-key">Source</span><span className="debug-val">{debug.request_inspector.extraction_source}</span></div>
+                      <div className="debug-row"><span className="debug-key">Files detected</span><span className="debug-val">{debug.request_inspector.files_detected}</span></div>
+                      <div className="debug-row"><span className="debug-key">Files sent</span><span className="debug-val">{debug.request_inspector.files_sent_to_ai}</span></div>
+                      <div className="debug-row"><span className="debug-key">Cases kept</span><span className="debug-val">{debug.request_inspector.manual_cases_kept} / {debug.request_inspector.manual_cases_generated}</span></div>
+                      <div className="debug-row"><span className="debug-key">Deep scan</span><span className="debug-val">{String(debug.request_inspector.deep_scan_used)}</span></div>
                     </div>
+                  )}
+
+                  {debug?.warnings.length ? (
+                    <div className="warning-banner" style={{ marginTop: 8 }}>{debug.warnings.join(" | ")}</div>
                   ) : null}
 
-                  {debug?.warnings.length ? <div className="warning-banner">{debug.warnings.join(" | ")}</div> : null}
-
-                  {debug?.risk_formula ? (
-                    <div className="formula-card">
-                      <h4>Risk Formula</h4>
-                      <p className="muted-wrap">
-                        AI {debug.risk_formula.ai_score.toFixed(1)} · Deterministic {debug.risk_formula.deterministic_score.toFixed(1)} · Final {debug.risk_formula.final_score.toFixed(1)}
-                      </p>
-                      {debug.risk_formula.categories ? (
-                        <div className="debug-grid">
-                          <p><strong>Volume:</strong> {debug.risk_formula.categories.volume.toFixed(1)}</p>
-                          <p><strong>Churn:</strong> {debug.risk_formula.categories.churn.toFixed(1)}</p>
-                          <p><strong>Sensitive path impact:</strong> {debug.risk_formula.categories.sensitive_path_impact.toFixed(1)}</p>
-                          <p><strong>Confidence penalties:</strong> {debug.risk_formula.categories.confidence_penalties.toFixed(1)}</p>
+                  {isDebugExpanded && debug && (
+                    <div style={{ marginTop: 10 }} ref={debugDetailsRef}>
+                      {debug.request_inspector.dropped_files_summary.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div className="debug-key" style={{ marginBottom: 6 }}>Dropped files</div>
+                          {debug.request_inspector.dropped_files_summary.map((item, i) => (
+                            <div key={i} className="trust-driver">{item.path} — {item.reason}</div>
+                          ))}
                         </div>
-                      ) : null}
-                      <ul className="clean-list">
-                        {debug.risk_formula.drivers.map((driver, index) => (
-                          <li key={`${driver}-${index}`}>{driver}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-
-                  {debug && debug.request_inspector.dropped_files_summary.length > 0 ? (
-                    <div className="formula-card">
-                      <h4>Dropped Files</h4>
-                      <ul className="clean-list">
-                        {debug.request_inspector.dropped_files_summary.map((item, index) => (
-                          <li key={`${item.path}-${index}`}>{item.path} ({item.reason})</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-
-                  {debug && debug.request_inspector.normalization_flags_applied.length > 0 ? (
-                    <div className="formula-card">
-                      <h4>Guardrails Applied</h4>
-                      <ul className="clean-list">
-                        {debug.request_inspector.normalization_flags_applied.map((flag) => (
-                          <li key={flag}>{flag}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-
-                  {isDebugExpanded && debug ? (
-                    <div className="debug-sections" ref={debugDetailsRef}>
-                      <div className="panel-head-row">
-                        <h4>Prompt Preview</h4>
-                        <div className="row-actions">
-                          <Button variant="ghost" onClick={() => setIsPromptExpanded((v) => !v)}>{isPromptExpanded ? "Less" : "More"}</Button>
-                          <Button variant="secondary" onClick={() => void copyText(debug.request_inspector.prompt_preview)}>Copy</Button>
+                      )}
+                      {debug.request_inspector.normalization_flags_applied.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div className="debug-key" style={{ marginBottom: 6 }}>Guardrails applied</div>
+                          {debug.request_inspector.normalization_flags_applied.map((flag, i) => (
+                            <div key={i} className="trust-driver">{flag}</div>
+                          ))}
                         </div>
-                      </div>
-                      <CodeViewer
-                        value={debug.request_inspector.prompt_preview}
-                        language="text"
-                        expanded={isPromptExpanded}
-                      />
+                      )}
 
                       <div className="panel-head-row">
-                        <h4>Context Summary</h4>
+                        <span className="debug-key">Prompt preview</span>
                         <div className="row-actions">
-                          <Button variant="ghost" onClick={() => setIsContextExpanded((v) => !v)}>{isContextExpanded ? "Less" : "More"}</Button>
-                          <Button variant="secondary" onClick={() => void copyText(debug.context_summary)}>Copy</Button>
+                          <Button variant="ghost" onClick={() => setIsPromptExpanded((v) => !v)}>
+                            {isPromptExpanded ? "Less" : "More"}
+                          </Button>
+                          <Button variant="secondary" onClick={() => void copyText(debug.request_inspector.prompt_preview)}>
+                            Copy
+                          </Button>
                         </div>
                       </div>
-                      <CodeViewer
-                        value={debug.context_summary}
-                        language="text"
-                        expanded={isContextExpanded}
-                      />
+                      <CodeViewer value={debug.request_inspector.prompt_preview} language="text" expanded={isPromptExpanded} />
+
+                      <div className="panel-head-row" style={{ marginTop: 10 }}>
+                        <span className="debug-key">Context summary</span>
+                        <div className="row-actions">
+                          <Button variant="ghost" onClick={() => setIsContextExpanded((v) => !v)}>
+                            {isContextExpanded ? "Less" : "More"}
+                          </Button>
+                          <Button variant="secondary" onClick={() => void copyText(debug.context_summary)}>
+                            Copy
+                          </Button>
+                        </div>
+                      </div>
+                      <CodeViewer value={debug.context_summary} language="text" expanded={isContextExpanded} />
                     </div>
-                  ) : null}
-                </article>
+                  )}
+                </div>
+
+                {/* UI Recorder — moved here, below all analysis */}
+                <div className="panel-card">
+                  <h3>UI Recorder</h3>
+                  <div className="recorder-row">
+                    {recorder.active ? (
+                      <>
+                        <div className="recorder-live">
+                          <div className="recorder-dot" />
+                          <span className="recorder-meta">
+                            Recording <span className="recorder-time">{recordingTime}</span>
+                            {recorder.domain ? ` · ${recorder.domain}` : ""}
+                          </span>
+                        </div>
+                        <Button variant="secondary" onClick={() => void stopRecorder()}>Stop</Button>
+                      </>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        onClick={() => void startRecorder()}
+                        disabled={settings.safeMode.enabled}
+                      >
+                        Start recording
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </>
-            ) : (
-              <article className="panel-card">
-                <h3>No Analysis Yet</h3>
-                <p className="muted-wrap">Run Analyze PR/Commit to generate risk, test plan, and manual test cases.</p>
-              </article>
             )}
 
-            <article className="panel-card">
-              <h3>UI Recorder</h3>
-              {recorder.active ? (
-                <div className="row-actions">
-                  <p>● Recording {recordingTime} {recorder.domain ? `(${recorder.domain})` : ""}</p>
-                  <Button onClick={() => void stopRecorder()}>Stop Recording</Button>
+            {/* Empty state — no analysis yet */}
+            {!analysis && !analyzing && !analyzeError && (
+              <div className="panel-card">
+                <div className="empty-state">
+                  <div className="empty-icon">⬡</div>
+                  <div className="empty-title">No analysis yet</div>
+                  <div className="empty-desc">
+                    Open a GitHub PR or commit, then hit Analyze.
+                  </div>
                 </div>
-              ) : (
-                <Button onClick={() => void startRecorder()} disabled={settings.safeMode.enabled}>Start UI Recording</Button>
-              )}
-            </article>
-          </section>
-        ) : null}
+              </div>
+            )}
 
-        {tab === "sessions" ? (
-          <section className="section-stack">
-            <article className="panel-card">
-              <div className="panel-head-row">
-                <h3>Sessions</h3>
+            {/* UI Recorder — show even before analysis */}
+            {!analysis && !analyzing && (
+              <div className="panel-card">
+                <h3>UI Recorder</h3>
+                <div className="recorder-row">
+                  {recorder.active ? (
+                    <>
+                      <div className="recorder-live">
+                        <div className="recorder-dot" />
+                        <span className="recorder-meta">
+                          Recording <span className="recorder-time">{recordingTime}</span>
+                          {recorder.domain ? ` · ${recorder.domain}` : ""}
+                        </span>
+                      </div>
+                      <Button variant="secondary" onClick={() => void stopRecorder()}>Stop</Button>
+                    </>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      onClick={() => void startRecorder()}
+                      disabled={settings.safeMode.enabled}
+                    >
+                      Start recording
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── SESSIONS TAB ── */}
+        {tab === "sessions" && (
+          <div className="section-stack">
+            <div className="panel-card">
+              <div className="sessions-toolbar">
+                <div>
+                  <h3 style={{ marginBottom: 4 }}>Sessions</h3>
+                  <div className="sessions-toolbar-meta">{totalSavedRuns} saved run{totalSavedRuns === 1 ? "" : "s"}</div>
+                </div>
                 <div className="row-actions">
-                  <span className="chip">Runs: {totalSavedRuns}</span>
                   <Button variant="secondary" onClick={() => void refreshSessions()}>Refresh</Button>
                   <Button variant="ghost" onClick={() => void clearAllSessions()} disabled={!totalSavedRuns}>Clear All</Button>
                 </div>
               </div>
 
+              <div className="sessions-breadcrumb">
+                Sessions
+                {sessionsNav.selectedRepo ? ` / ${sessionsNav.selectedRepo}` : ""}
+                {selectedSession ? ` / ${selectedSession.ref}` : ""}
+              </div>
+
               {sessionsError ? <div className="warning-banner">{sessionsError}</div> : null}
-              {!sessionsError && sessionThreads.length === 0 ? (
-                <p className="muted-wrap">No saved analysis sessions yet. Run Analyze in Review tab to create timestamped history.</p>
+
+              {!sessionsError && totalSavedRuns === 0 ? (
+                <div className="sessions-empty">
+                  <div className="empty-icon">◫</div>
+                  <div className="sessions-empty-title">No sessions yet</div>
+                  <div className="sessions-empty-desc">
+                    Run Analyze in the Review tab and each result will be saved here automatically.
+                  </div>
+                </div>
               ) : null}
 
-              <div className="sessions-list">
-                {sessionThreads.map((thread) => {
-                  const isExpanded = !!expandedThreads[thread.threadId];
-                  return (
-                    <div key={thread.threadId} className="session-thread">
-                      <div className="panel-head-row">
-                        <button
-                          className="session-link"
-                          onClick={() => setExpandedThreads((state) => ({ ...state, [thread.threadId]: !state[thread.threadId] }))}
-                        >
-                          {isExpanded ? "▾" : "▸"} {thread.repo} #{thread.ref}
-                        </button>
-                        <div className="row-actions">
-                          <span className="chip">{thread.runCount} run(s)</span>
-                          <Button variant="ghost" onClick={() => void deleteThread(thread.threadId)}>Delete Thread</Button>
-                        </div>
-                      </div>
-                      <p className="muted-wrap">Last updated: {new Date(thread.lastUpdatedAt).toLocaleString()}</p>
-                      {isExpanded ? (
-                        <ul className="clean-list">
-                          {thread.runs.map((run) => (
-                            <li key={run.id} className="session-run">
-                              <button className="session-link" onClick={() => void openSession(run.id)}>
-                                {new Date(run.createdAt).toLocaleString()} · Score {run.riskScore.toFixed(1)} · {run.coverageLevel}
-                              </button>
-                              <div className="row-actions">
-                                <span className={`chip quality-${run.analysisQuality}`}>Quality: {run.analysisQuality}</span>
-                                <Button variant="ghost" onClick={() => void deleteRun(run.id)}>Delete</Button>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </article>
-
-            {selectedSession ? (
-              <article className="panel-card">
-                <h3>Session Detail</h3>
-                <p className="muted-wrap">
-                  {selectedSession.repo} · {selectedSession.ref} · {new Date(selectedSession.createdAt).toLocaleString()}
-                </p>
-                <p className="metric-line">Score: {selectedSession.riskScore.toFixed(1)} / 10</p>
-                <div className="status-chip-row">
-                  <span className="chip">Coverage: {selectedSession.coverageLevel}</span>
-                  <span className={`chip quality-${selectedSession.analysisQuality}`}>Quality: {selectedSession.analysisQuality}</span>
-                  <span className="chip">Files sent: {selectedSession.debug.filesSent}</span>
+              {!sessionsError && totalSavedRuns > 0 && sessionsNav.mode !== "repos" ? (
+                <div className="sessions-nav-row">
+                  <Button variant="ghost" onClick={() => dispatchSessionsNav({ type: "back" })}>Back</Button>
+                  {sessionsNav.selectedRepo ? <div className="sessions-nav-chip">{sessionsNav.selectedRepo}</div> : null}
                 </div>
-                <h4>Risk Areas</h4>
-                <ul className="clean-list">
-                  {selectedSession.riskAreas.map((risk, index) => (
-                    <li key={`${risk.area}-${index}`} className="risk-item">
-                      <span className={`severity-badge severity-${risk.severity}`}>{risk.severity.toUpperCase()}</span> {risk.area}
-                      <div className="risk-why">{risk.why}</div>
-                      <div className="muted-wrap">{risk.evidence_files.join(", ")}</div>
-                    </li>
-                  ))}
-                </ul>
-                <h4>Manual Cases</h4>
-                <ul className="clean-list">
-                  {selectedSession.manualTestCases.map((testCase) => (
-                    <li key={testCase.id} className="risk-item">
-                      <strong>{testCase.id}:</strong> {testCase.title}
-                      <div className="risk-why">Why this is suggested: {testCase.why}</div>
-                      <div className="muted-wrap">Evidence: {testCase.evidence_files.join(", ")}</div>
-                    </li>
-                  ))}
-                </ul>
-                {selectedSession.debug.warnings.length > 0 ? (
-                  <div className="warning-banner">{selectedSession.debug.warnings.join(" | ")}</div>
-                ) : null}
-              </article>
-            ) : null}
-          </section>
-        ) : null}
+              ) : null}
 
-        {tab === "settings" ? (
-          <article className="panel-card">
+              {!sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "repos" ? (
+                <div className="sessions-list">
+                  {repoGroups.map((repo) => (
+                    <button
+                      key={repo.repo}
+                      className="sessions-row"
+                      onClick={() => dispatchSessionsNav({ type: "open_repo", repo: repo.repo })}
+                    >
+                      <div className="sessions-row-top">
+                        <div className="sessions-row-title">{repo.repo}</div>
+                        <div className="sessions-row-chip">{repo.runCount} run{repo.runCount === 1 ? "" : "s"}</div>
+                      </div>
+                      <div className="sessions-row-subtle">Last scanned {new Date(repo.lastUpdatedAt).toLocaleString()}</div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {!sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "runs" ? (
+                <div className="sessions-list">
+                  {runsForSelectedRepo.map((run) => (
+                    <button key={run.id} className="sessions-row" onClick={() => void openSession(run.id)}>
+                      {cleanSessionTitle(run.title) ? <div className="sessions-run-heading">{cleanSessionTitle(run.title)}</div> : null}
+                      <div className="sessions-run-line">
+                        <div className="sessions-row-title">{run.pageType === "pull_request" ? `PR #${run.ref}` : run.ref.slice(0, 12)}</div>
+                        <div className="sessions-row-chip">Score {run.riskScore.toFixed(1)}</div>
+                      </div>
+                      <div className="sessions-row-subtle">{new Date(run.createdAt).toLocaleString()}</div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            {!sessionsError && sessionsNav.mode === "detail" && selectedSession ? (
+              <div className="panel-card">
+                <div className="panel-head-row">
+                  <div>
+                    <h3 style={{ marginBottom: 4 }}>{cleanSessionTitle(selectedSession.title) ?? "Saved Run"}</h3>
+                    <div className="sessions-toolbar-meta">{selectedSession.repo} / {selectedSession.ref}</div>
+                  </div>
+                  <div className="row-actions">
+                    <Button variant="ghost" onClick={() => void deleteRepoThread(selectedSession.repo)}>Delete Repo</Button>
+                    <Button variant="ghost" onClick={() => void deleteRun(selectedSession.id)}>Delete Run</Button>
+                  </div>
+                </div>
+
+                <div className="status-chip-row">
+                  <span className="chip">Score: {selectedSession.riskScore.toFixed(1)}</span>
+                  <span className={`chip quality-${selectedSession.analysisQuality}`}>Quality: {selectedSession.analysisQuality}</span>
+                  <span className="chip">Coverage: {selectedSession.coverageLevel}</span>
+                  <span className="chip">{selectedSession.pageType === "pull_request" ? "PR" : "Commit"}</span>
+                </div>
+
+                <div className="sessions-detail-meta">Scanned {new Date(selectedSession.createdAt).toLocaleString()}</div>
+
+                <div className="sessions-detail-section">
+                  <h4>Risk Areas</h4>
+                  <div className="risk-list">
+                    {selectedSession.riskAreas.map((risk, index) => (
+                      <div key={`${risk.area}-${index}`} className="risk-item">
+                        <div className="risk-item-header">
+                          <span className={`severity-badge severity-${risk.severity}`}>{risk.severity.toUpperCase()}</span>
+                          <span className="risk-area-name">{risk.area}</span>
+                        </div>
+                        <div className="risk-why">{risk.why}</div>
+                        {risk.evidence_files.length > 0 ? <div className="risk-files">{risk.evidence_files.join(", ")}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="sessions-detail-section">
+                  <h4>Test Plan</h4>
+                  <div className="test-plan-list">
+                    {selectedSession.testPlan.unit.map((item, index) => (
+                      <div key={`session-unit-${index}`} className="test-plan-item">
+                        <span className="test-type-tag tag-unit">Unit</span>
+                        <span className="test-item-title">{item.title}</span>
+                      </div>
+                    ))}
+                    {selectedSession.testPlan.integration.map((item, index) => (
+                      <div key={`session-int-${index}`} className="test-plan-item">
+                        <span className="test-type-tag tag-integration">Integ.</span>
+                        <span className="test-item-title">{item.title}</span>
+                      </div>
+                    ))}
+                    {selectedSession.testPlan.e2e.map((item, index) => (
+                      <div key={`session-e2e-${index}`} className="test-plan-item">
+                        <span className="test-type-tag tag-e2e">E2E</span>
+                        <span className="test-item-title">{item.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="sessions-detail-section">
+                  <h4>Manual Cases</h4>
+                  <div className="manual-list">
+                    {selectedSession.manualTestCases.map((testCase) => (
+                      <div key={testCase.id} className="manual-case">
+                        <div className="manual-case-header">
+                          <span className="manual-case-id">{testCase.id}</span>
+                          <span className="manual-case-title">{testCase.title}</span>
+                        </div>
+                        <div className="manual-case-why">{testCase.why}</div>
+                        {testCase.evidence_files.length > 0 ? <div className="manual-case-files">{testCase.evidence_files.join(", ")}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="sessions-detail-section">
+                  <h4>Debug</h4>
+                  <div className="debug-grid">
+                    <div className="debug-row"><span className="debug-key">Files detected</span><span className="debug-val">{selectedSession.debug.filesDetected}</span></div>
+                    <div className="debug-row"><span className="debug-key">Files sent</span><span className="debug-val">{selectedSession.debug.filesSent}</span></div>
+                    <div className="debug-row"><span className="debug-key">Deep scan</span><span className="debug-val">{String(selectedSession.debug.deepScanUsed)}</span></div>
+                    <div className="debug-row"><span className="debug-key">Source</span><span className="debug-val">{selectedSession.debug.extractionSource}</span></div>
+                  </div>
+                  {selectedSession.debug.warnings.length > 0 ? (
+                    <div className="warning-banner">{selectedSession.debug.warnings.join(" | ")}</div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {/* ── SETTINGS TAB ── */}
+        {tab === "settings" && (
+          <div className="panel-card">
             <SettingsPanel settings={settings} onSaved={setSettings} />
-          </article>
-        ) : null}
+          </div>
+        )}
       </section>
     </main>
   );

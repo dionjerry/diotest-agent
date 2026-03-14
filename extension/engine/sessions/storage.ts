@@ -111,6 +111,7 @@ export async function saveAnalysisSession(input: SaveAnalysisSessionInput): Prom
     updatedAt: now,
     repo: input.debug.request_inspector.repo,
     ref,
+    title: input.debug.raw_context.title?.trim() || undefined,
     pageType: input.debug.request_inspector.page_type,
     url: input.debug.raw_context.url,
     mode: input.mode,
