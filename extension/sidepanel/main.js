@@ -28579,7 +28579,14 @@ function validateSettings(input) {
 
 // extension/sidepanel/lib/messages.ts
 async function sendMessage(msg) {
-  return chrome.runtime.sendMessage(msg);
+  try {
+    return await chrome.runtime.sendMessage(msg);
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Message dispatch failed."
+    };
+  }
 }
 
 // extension/sidepanel/components/ui/button.tsx
@@ -29628,6 +29635,28 @@ function sessionsNavReducer(state, action) {
   }
 }
 
+// extension/sidepanel/lib/recorderView.ts
+function recorderNavReducer(state, action) {
+  switch (action.type) {
+    case "open_domain":
+      return { mode: "sessions", selectedDomain: action.domain, selectedSessionId: null };
+    case "open_session":
+      return { ...state, mode: "detail", selectedSessionId: action.sessionId };
+    case "back":
+      if (state.mode === "detail") return { ...state, mode: "sessions", selectedSessionId: null };
+      if (state.mode === "sessions") return { mode: "domains", selectedDomain: null, selectedSessionId: null };
+      return state;
+    case "reset":
+      return { mode: "domains", selectedDomain: null, selectedSessionId: null };
+    default:
+      return state;
+  }
+}
+function sessionsForDomain(groups, domain) {
+  if (!domain) return [];
+  return groups.find((group) => group.domain === domain)?.sessions ?? [];
+}
+
 // extension/sidepanel/App.tsx
 var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
 function formatElapsed(startedAt) {
@@ -29677,6 +29706,86 @@ function cleanSessionTitle(title) {
   if (/^search code, repositories, users, issues, pull requests\.\.\.$/i.test(normalized)) return null;
   return normalized;
 }
+function formatRecorderAction(action) {
+  switch (action) {
+    case "click":
+      return "Clicked";
+    case "input":
+      return "Typed";
+    case "change":
+      return "Changed";
+    case "select":
+      return "Selected";
+    case "submit":
+      return "Submitted";
+    case "focus":
+      return "Focused";
+    case "blur":
+      return "Blurred";
+    case "scroll":
+      return "Scrolled";
+    case "keydown":
+      return "Pressed key";
+    case "navigation":
+      return "Navigated";
+    default:
+      return action;
+  }
+}
+function formatRecorderStepMeta(step) {
+  const parts = [new Date(step.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })];
+  if (step.selector) parts.push(step.selector);
+  if (step.value) parts.push(step.value);
+  if (step.key) parts.push(step.key);
+  return parts.join(" \xB7 ");
+}
+function formatRecorderStatus(status) {
+  switch (status) {
+    case "generated":
+      return "Generated";
+    case "review":
+      return "Ready for review";
+    case "recording":
+      return "Recording";
+    default:
+      return status;
+  }
+}
+function getRecorderGenerateLabel(state) {
+  switch (state) {
+    case "saving_review":
+      return "Saving Review\u2026";
+    case "generating":
+      return "Generating\u2026";
+    case "error":
+      return "Generate Again";
+    default:
+      return "Generate Outputs";
+  }
+}
+function getRecorderUrlLabel(value) {
+  try {
+    const url = new URL(value);
+    const path = `${url.pathname}${url.search ? "?" : ""}`;
+    return `${url.hostname}${path}`;
+  } catch {
+    return value;
+  }
+}
+function UrlCard({ label, value }) {
+  const [expanded, setExpanded] = (0, import_react5.useState)(false);
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-url-card", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-url-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: label }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions recorder-url-actions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => setExpanded((current) => !current), children: expanded ? "Collapse" : "Expand" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(CopyButton, { text: value }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("a", { className: "recorder-url-open", href: value, target: "_blank", rel: "noreferrer", children: "Open" })
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: `recorder-url-value${expanded ? " expanded" : ""}`, title: value, children: expanded ? value : getRecorderUrlLabel(value) })
+  ] });
+}
 function CopyButton({ text, label = "Copy" }) {
   const [copied, setCopied] = (0, import_react5.useState)(false);
   async function handleCopy() {
@@ -29690,10 +29799,15 @@ var MODEL_OPTIONS = [
   { group: "Anthropic", options: ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"] },
   { group: "OpenAI", options: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"] }
 ];
+var DEFAULT_RECORDER_GENERATION_OPTIONS = {
+  includeVision: false,
+  includePageSummaries: true
+};
 function App() {
   const [settings, setSettings] = (0, import_react5.useState)(DEFAULT_SETTINGS);
   const [tab, setTab] = (0, import_react5.useState)("review");
   const [recorder, setRecorder] = (0, import_react5.useState)({ active: false });
+  const [activeRecorderSession, setActiveRecorderSession] = (0, import_react5.useState)(null);
   const [analysis, setAnalysis] = (0, import_react5.useState)(null);
   const [debug, setDebug] = (0, import_react5.useState)(null);
   const [analyzeError, setAnalyzeError] = (0, import_react5.useState)(null);
@@ -29711,7 +29825,28 @@ function App() {
     selectedRepo: null,
     selectedSessionId: null
   });
+  const [sessionsSurface, setSessionsSurface] = (0, import_react5.useState)("analysis");
+  const [recorderGroups, setRecorderGroups] = (0, import_react5.useState)([]);
+  const [recorderSessionsError, setRecorderSessionsError] = (0, import_react5.useState)(null);
+  const [selectedRecorderSession, setSelectedRecorderSession] = (0, import_react5.useState)(null);
+  const [recorderDetailTab, setRecorderDetailTab] = (0, import_react5.useState)("overview");
+  const [recorderGenerationOptions, setRecorderGenerationOptions] = (0, import_react5.useState)(DEFAULT_RECORDER_GENERATION_OPTIONS);
+  const [recorderRequestState, setRecorderRequestState] = (0, import_react5.useState)("idle");
+  const [recorderNav, dispatchRecorderNav] = (0, import_react5.useReducer)(recorderNavReducer, {
+    mode: "domains",
+    selectedDomain: null,
+    selectedSessionId: null
+  });
   const debugDetailsRef = (0, import_react5.useRef)(null);
+  async function refreshActiveRecorderSession(sessionId) {
+    const response = await sendMessage({
+      type: "recorder.session.get",
+      payload: { sessionId }
+    });
+    if (!response.ok) return null;
+    setActiveRecorderSession(response.session);
+    return response.session;
+  }
   (0, import_react5.useEffect)(() => {
     void (async () => {
       const loaded = await sendMessage({ type: "settings.load" });
@@ -29721,7 +29856,13 @@ function App() {
       }
       const status = await sendMessage({ type: "recorder.status" });
       if (status.ok && status.state) {
-        setRecorder({ active: status.state.active, startedAt: status.state.startedAt, domain: status.state.domain });
+        setRecorder({
+          active: status.state.active,
+          startedAt: status.state.startedAt,
+          domain: status.state.domain,
+          sessionId: status.state.sessionId
+        });
+        await refreshActiveRecorderSession(status.state.sessionId);
       }
       const intentData = await chrome.storage.local.get("diotest.ui.intent");
       const intent = intentData["diotest.ui.intent"];
@@ -29730,16 +29871,32 @@ function App() {
       if (intent === "review_analyze") await runAnalysis(loaded.ok ? loaded.settings.analysis.deepScanDefault : false);
       if (intent) await chrome.storage.local.remove("diotest.ui.intent");
       await refreshSessions();
+      await refreshRecorderSessions();
     })();
   }, []);
   (0, import_react5.useEffect)(() => {
     if (!recorder.active) return;
-    const t = setInterval(() => setRecorder((r) => ({ ...r })), 1e3);
+    const t = setInterval(() => {
+      setRecorder((r) => ({ ...r }));
+      if (recorder.sessionId) {
+        void refreshActiveRecorderSession(recorder.sessionId);
+      }
+    }, 1e3);
     return () => clearInterval(t);
-  }, [recorder.active]);
+  }, [recorder.active, recorder.sessionId]);
   (0, import_react5.useEffect)(() => {
     if (isDebugExpanded) debugDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [isDebugExpanded]);
+  (0, import_react5.useEffect)(() => {
+    setRecorderDetailTab("overview");
+    setRecorderGenerationOptions(
+      selectedRecorderSession?.lastGenerationOptions ? {
+        includeVision: selectedRecorderSession.lastGenerationOptions.includeVision,
+        includePageSummaries: selectedRecorderSession.lastGenerationOptions.includePageSummaries
+      } : DEFAULT_RECORDER_GENERATION_OPTIONS
+    );
+    setRecorderRequestState("idle");
+  }, [selectedRecorderSession?.id]);
   const recordingTime = (0, import_react5.useMemo)(
     () => recorder.startedAt ? formatElapsed(recorder.startedAt) : "00:00",
     [recorder]
@@ -29752,6 +29909,14 @@ function App() {
   const runsForSelectedRepo = (0, import_react5.useMemo)(
     () => buildRunsForRepo(sessionThreads, sessionsNav.selectedRepo),
     [sessionThreads, sessionsNav.selectedRepo]
+  );
+  const recorderSessionsForSelectedDomain = (0, import_react5.useMemo)(
+    () => sessionsForDomain(recorderGroups, recorderNav.selectedDomain),
+    [recorderGroups, recorderNav.selectedDomain]
+  );
+  const liveRecorderSteps = (0, import_react5.useMemo)(
+    () => [...activeRecorderSession?.steps ?? []].slice(-8).reverse(),
+    [activeRecorderSession]
   );
   async function refreshSessions() {
     const sessions = await sendMessage({ type: "sessions.list" });
@@ -29777,6 +29942,19 @@ function App() {
       repoHasRuns: buildRunsForRepo(sessions.threads, sessionsNav.selectedRepo).length > 0
     });
   }
+  async function refreshRecorderSessions() {
+    const response = await sendMessage({ type: "recorder.session.list" });
+    if (!response.ok || !response.sessions) {
+      setRecorderSessionsError("Unable to load recorder sessions.");
+      return;
+    }
+    setRecorderSessionsError(null);
+    setRecorderGroups(response.sessions);
+    if (selectedRecorderSession) {
+      const current = response.sessions.flatMap((group) => group.sessions).find((session) => session.id === selectedRecorderSession.id) ?? null;
+      setSelectedRecorderSession(current);
+    }
+  }
   async function openSession(sessionId) {
     const response = await sendMessage({
       type: "sessions.get",
@@ -29789,6 +29967,20 @@ function App() {
     setSelectedSession(response.session);
     if (response.session) {
       dispatchSessionsNav({ type: "open_session", sessionId: response.session.id });
+    }
+  }
+  async function openRecorderSession(sessionId) {
+    const response = await sendMessage({
+      type: "recorder.session.get",
+      payload: { sessionId }
+    });
+    if (!response.ok) {
+      setRecorderSessionsError("Could not open recorder session.");
+      return;
+    }
+    setSelectedRecorderSession(response.session);
+    if (response.session) {
+      dispatchRecorderNav({ type: "open_session", sessionId: response.session.id });
     }
   }
   async function deleteRun(sessionId) {
@@ -29814,6 +30006,78 @@ function App() {
     setSelectedSession(null);
     dispatchSessionsNav({ type: "reset" });
     await refreshSessions();
+  }
+  async function saveRecorderReview(showProgress = false) {
+    if (!selectedRecorderSession) return;
+    if (showProgress) setRecorderRequestState("saving_review");
+    const response = await sendMessage({
+      type: "recorder.session.update",
+      payload: {
+        sessionId: selectedRecorderSession.id,
+        steps: selectedRecorderSession.steps.map((step) => ({ id: step.id, title: step.title, kept: step.kept }))
+      }
+    });
+    if (!response.ok || !response.session) {
+      setRecorderSessionsError("Unable to save recorder review.");
+      if (showProgress) setRecorderRequestState("error");
+      return;
+    }
+    setSelectedRecorderSession(response.session);
+    await refreshRecorderSessions();
+    if (showProgress) setRecorderRequestState("idle");
+  }
+  async function generateRecorderOutputs() {
+    if (!selectedRecorderSession) return;
+    if (recorderRequestState === "saving_review" || recorderRequestState === "generating") return;
+    setRecorderSessionsError(null);
+    setRecorderRequestState("saving_review");
+    const reviewResponse = await sendMessage({
+      type: "recorder.session.update",
+      payload: {
+        sessionId: selectedRecorderSession.id,
+        steps: selectedRecorderSession.steps.map((step) => ({ id: step.id, title: step.title, kept: step.kept }))
+      }
+    });
+    if (!reviewResponse.ok || !reviewResponse.session) {
+      setRecorderSessionsError("Unable to save recorder review.");
+      setRecorderRequestState("error");
+      return;
+    }
+    setSelectedRecorderSession(reviewResponse.session);
+    setRecorderRequestState("generating");
+    const response = await sendMessage({
+      type: "recorder.session.generate",
+      payload: {
+        sessionId: selectedRecorderSession.id,
+        includeVision: recorderGenerationOptions.includeVision,
+        includePageSummaries: recorderGenerationOptions.includePageSummaries
+      }
+    });
+    if (!response.ok || !response.session) {
+      setRecorderSessionsError(response.ok ? "Unable to generate recorder outputs." : response.error);
+      setRecorderRequestState("error");
+      return;
+    }
+    setSelectedRecorderSession(response.session);
+    setRecorderDetailTab("results");
+    await refreshRecorderSessions();
+    setRecorderRequestState("idle");
+  }
+  async function deleteRecorderSession(sessionId) {
+    if (!confirm("Delete this recorder session?")) return;
+    await sendMessage({ type: "recorder.session.delete", payload: { sessionId } });
+    if (selectedRecorderSession?.id === sessionId) {
+      setSelectedRecorderSession(null);
+      dispatchRecorderNav({ type: "back" });
+    }
+    await refreshRecorderSessions();
+  }
+  async function clearAllRecorderSessions() {
+    if (!confirm("Clear all recorder sessions?")) return;
+    await sendMessage({ type: "recorder.session.clearAll" });
+    setSelectedRecorderSession(null);
+    dispatchRecorderNav({ type: "reset" });
+    await refreshRecorderSessions();
   }
   async function runAnalysis(scanOverride) {
     setAnalyzing(true);
@@ -29863,11 +30127,28 @@ function App() {
       type: "recorder.start",
       payload: { tabId: active.id, domain, flow: "Recorded Flow" }
     });
-    if (res.ok && res.session) setRecorder({ active: true, startedAt: res.session.startedAt, domain: res.session.domain });
+    if (res.ok && res.session) {
+      setRecorder({
+        active: true,
+        startedAt: res.session.startedAt,
+        domain: res.session.domain,
+        sessionId: res.session.sessionId
+      });
+      await refreshActiveRecorderSession(res.session.sessionId);
+    }
   }
   async function stopRecorder() {
-    await sendMessage({ type: "recorder.stop" });
+    const result = await sendMessage({ type: "recorder.stop" });
     setRecorder({ active: false });
+    setActiveRecorderSession(null);
+    await refreshRecorderSessions();
+    if (result.ok && result.session) {
+      setSessionsSurface("recorder");
+      setTab("sessions");
+      setSelectedRecorderSession(result.session);
+      dispatchRecorderNav({ type: "open_domain", domain: result.session.domain });
+      dispatchRecorderNav({ type: "open_session", sessionId: result.session.id });
+    }
   }
   const testPlanItems = (0, import_react5.useMemo)(() => {
     if (!analysis) return [];
@@ -29879,6 +30160,58 @@ function App() {
   }, [analysis]);
   const scoreClass = analysis ? getRiskClass(analysis.risk_score) : "score-low";
   const scoreLabel = analysis ? getRiskLabel(analysis.risk_score) : "";
+  function renderRecorderPanel() {
+    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { style: { marginBottom: 4 }, children: "UI Recorder" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-toolbar-meta", children: recorder.active ? "Live action log while recording. Stop to review and generate tests." : "Capture clicks, scrolls, typing, and navigation from the active page." })
+        ] }),
+        recorder.active ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "secondary", onClick: () => void stopRecorder(), children: "Stop & Review" }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+          Button,
+          {
+            variant: "secondary",
+            onClick: () => void startRecorder(),
+            disabled: settings.safeMode.enabled,
+            children: "Start Recording"
+          }
+        )
+      ] }),
+      recorder.active ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_jsx_runtime6.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live-shell", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live-summary", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-dot" }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "recorder-meta", children: [
+              "Recording ",
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "recorder-time", children: recordingTime }),
+              recorder.domain ? ` \xB7 ${recorder.domain}` : ""
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "status-chip-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              activeRecorderSession?.steps.length ?? 0,
+              " events"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              activeRecorderSession?.screenshotsCaptured ?? 0,
+              " screenshots"
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-live-log", children: liveRecorderSteps.length > 0 ? liveRecorderSteps.map((step) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live-item", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live-item-top", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: `recorder-action-chip recorder-action-${step.action}`, children: formatRecorderAction(step.action) }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "recorder-live-time", children: new Date(step.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-live-title", children: step.title }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-live-meta", children: formatRecorderStepMeta(step) })
+        ] }, step.id)) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-empty recorder-live-empty", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-title", children: "Waiting for actions" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-desc", children: "Click, scroll, type, or navigate on the current page and the log will update here." })
+        ] }) })
+      ] }) }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-idle-state", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-desc", children: "After you stop recording, DioTest opens a review screen with the captured page actions and generates manual cases from the kept steps." }) })
+    ] });
+  }
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("main", { className: "app-shell", children: [
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("header", { className: "app-header", children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "brand-wrap", children: [
@@ -30128,123 +30461,162 @@ function App() {
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(CodeViewer, { value: debug.context_summary, language: "text", expanded: isContextExpanded })
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "UI Recorder" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-row", children: recorder.active ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-dot" }),
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "recorder-meta", children: [
-                  "Recording ",
-                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "recorder-time", children: recordingTime }),
-                  recorder.domain ? ` \xB7 ${recorder.domain}` : ""
-                ] })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "secondary", onClick: () => void stopRecorder(), children: "Stop" })
-            ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-              Button,
-              {
-                variant: "secondary",
-                onClick: () => void startRecorder(),
-                disabled: settings.safeMode.enabled,
-                children: "Start recording"
-              }
-            ) })
-          ] })
+          renderRecorderPanel()
         ] }),
         !analysis && !analyzing && !analyzeError && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "panel-card", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "empty-state", children: [
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "empty-icon", children: "\u2B21" }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "empty-title", children: "No analysis yet" }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "empty-desc", children: "Open a GitHub PR or commit, then hit Analyze." })
         ] }) }),
-        !analysis && !analyzing && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { children: "UI Recorder" }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-row", children: recorder.active ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-live", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-dot" }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "recorder-meta", children: [
-                "Recording ",
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "recorder-time", children: recordingTime }),
-                recorder.domain ? ` \xB7 ${recorder.domain}` : ""
-              ] })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "secondary", onClick: () => void stopRecorder(), children: "Stop" })
-          ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-            Button,
-            {
-              variant: "secondary",
-              onClick: () => void startRecorder(),
-              disabled: settings.safeMode.enabled,
-              children: "Start recording"
-            }
-          ) })
-        ] })
+        !analysis && !analyzing && renderRecorderPanel()
       ] }),
       tab === "sessions" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "section-stack", children: [
         /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-toolbar", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { children: [
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { style: { marginBottom: 4 }, children: "Sessions" }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-toolbar-meta", children: [
-                totalSavedRuns,
-                " saved run",
-                totalSavedRuns === 1 ? "" : "s"
-              ] })
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-toolbar-meta", children: sessionsSurface === "analysis" ? `${totalSavedRuns} saved analysis run${totalSavedRuns === 1 ? "" : "s"}` : `${recorderGroups.reduce((count, group) => count + group.sessionCount, 0)} recorded session${recorderGroups.reduce((count, group) => count + group.sessionCount, 0) === 1 ? "" : "s"}` })
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "secondary", onClick: () => void refreshSessions(), children: "Refresh" }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => void clearAllSessions(), disabled: !totalSavedRuns, children: "Clear All" })
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  className: "session-surface-toggle",
+                  variant: sessionsSurface === "analysis" ? "secondary" : "ghost",
+                  onClick: () => setSessionsSurface("analysis"),
+                  children: "Analysis"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  className: "session-surface-toggle",
+                  variant: sessionsSurface === "recorder" ? "secondary" : "ghost",
+                  onClick: () => setSessionsSurface("recorder"),
+                  children: "Recorder"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  variant: "secondary",
+                  onClick: () => void (sessionsSurface === "analysis" ? refreshSessions() : refreshRecorderSessions()),
+                  children: "Refresh"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  variant: "ghost",
+                  onClick: () => void (sessionsSurface === "analysis" ? clearAllSessions() : clearAllRecorderSessions()),
+                  disabled: sessionsSurface === "analysis" ? !totalSavedRuns : recorderGroups.length === 0,
+                  children: "Clear All"
+                }
+              )
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-breadcrumb", children: [
-            "Sessions",
-            sessionsNav.selectedRepo ? ` / ${sessionsNav.selectedRepo}` : "",
-            selectedSession ? ` / ${selectedSession.ref}` : ""
-          ] }),
-          sessionsError ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: sessionsError }) : null,
-          !sessionsError && totalSavedRuns === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-empty", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "empty-icon", children: "\u25EB" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-title", children: "No sessions yet" }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-desc", children: "Run Analyze in the Review tab and each result will be saved here automatically." })
-          ] }) : null,
-          !sessionsError && totalSavedRuns > 0 && sessionsNav.mode !== "repos" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-nav-row", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => dispatchSessionsNav({ type: "back" }), children: "Back" }),
-            sessionsNav.selectedRepo ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-nav-chip", children: sessionsNav.selectedRepo }) : null
-          ] }) : null,
-          !sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "repos" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-list", children: repoGroups.map((repo) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
-            "button",
-            {
-              className: "sessions-row",
-              onClick: () => dispatchSessionsNav({ type: "open_repo", repo: repo.repo }),
-              children: [
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-top", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-title", children: repo.repo }),
-                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-chip", children: [
-                    repo.runCount,
-                    " run",
-                    repo.runCount === 1 ? "" : "s"
-                  ] })
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-subtle", children: [
-                  "Last scanned ",
-                  new Date(repo.lastUpdatedAt).toLocaleString()
-                ] })
-              ]
-            },
-            repo.repo
-          )) }) : null,
-          !sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "runs" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-list", children: runsForSelectedRepo.map((run) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("button", { className: "sessions-row", onClick: () => void openSession(run.id), children: [
-            cleanSessionTitle(run.title) ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-run-heading", children: cleanSessionTitle(run.title) }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-run-line", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-title", children: run.pageType === "pull_request" ? `PR #${run.ref}` : run.ref.slice(0, 12) }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-chip", children: [
-                "Score ",
-                run.riskScore.toFixed(1)
-              ] })
+          sessionsSurface === "analysis" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-breadcrumb", children: [
+              "Sessions",
+              sessionsNav.selectedRepo ? ` / ${sessionsNav.selectedRepo}` : "",
+              selectedSession ? ` / ${selectedSession.ref}` : ""
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-subtle", children: new Date(run.createdAt).toLocaleString() })
-          ] }, run.id)) }) : null
+            sessionsError ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: sessionsError }) : null,
+            !sessionsError && totalSavedRuns === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-empty", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "empty-icon", children: "\u25EB" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-title", children: "No analysis sessions yet" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-desc", children: "Run Analyze in the Review tab and each result will be saved here automatically." })
+            ] }) : null,
+            !sessionsError && totalSavedRuns > 0 && sessionsNav.mode !== "repos" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-nav-row", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => dispatchSessionsNav({ type: "back" }), children: "Back" }),
+              sessionsNav.selectedRepo ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-nav-chip", children: sessionsNav.selectedRepo }) : null
+            ] }) : null,
+            !sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "repos" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-list", children: repoGroups.map((repo) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+              "button",
+              {
+                className: "sessions-row",
+                onClick: () => dispatchSessionsNav({ type: "open_repo", repo: repo.repo }),
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-top", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-title", children: repo.repo }),
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-chip", children: [
+                      repo.runCount,
+                      " run",
+                      repo.runCount === 1 ? "" : "s"
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-subtle", children: [
+                    "Last scanned ",
+                    new Date(repo.lastUpdatedAt).toLocaleString()
+                  ] })
+                ]
+              },
+              repo.repo
+            )) }) : null,
+            !sessionsError && totalSavedRuns > 0 && sessionsNav.mode === "runs" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-list", children: runsForSelectedRepo.map((run) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("button", { className: "sessions-row", onClick: () => void openSession(run.id), children: [
+              cleanSessionTitle(run.title) ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-run-heading", children: cleanSessionTitle(run.title) }) : null,
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-run-line", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-title", children: run.pageType === "pull_request" ? `PR #${run.ref}` : run.ref.slice(0, 12) }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-chip", children: [
+                  "Score ",
+                  run.riskScore.toFixed(1)
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-subtle", children: new Date(run.createdAt).toLocaleString() })
+            ] }, run.id)) }) : null
+          ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-breadcrumb", children: [
+              "Recorder",
+              recorderNav.selectedDomain ? ` / ${recorderNav.selectedDomain}` : "",
+              selectedRecorderSession ? ` / ${selectedRecorderSession.name}` : ""
+            ] }),
+            recorderSessionsError ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: recorderSessionsError }) : null,
+            !recorderSessionsError && recorderGroups.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-empty", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "empty-icon", children: "\u25CE" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-title", children: "No recorder sessions yet" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-desc", children: "Start recording from the Review tab, then stop to open the step review flow here." })
+            ] }) : null,
+            !recorderSessionsError && recorderGroups.length > 0 && recorderNav.mode !== "domains" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-nav-row", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => dispatchRecorderNav({ type: "back" }), children: "Back" }),
+              recorderNav.selectedDomain ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-nav-chip", children: recorderNav.selectedDomain }) : null
+            ] }) : null,
+            !recorderSessionsError && recorderGroups.length > 0 && recorderNav.mode === "domains" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-list", children: recorderGroups.map((group) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+              "button",
+              {
+                className: "sessions-row",
+                onClick: () => dispatchRecorderNav({ type: "open_domain", domain: group.domain }),
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-top", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-title", children: group.domain }),
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-chip", children: [
+                      group.sessionCount,
+                      " session",
+                      group.sessionCount === 1 ? "" : "s"
+                    ] })
+                  ] }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-subtle", children: [
+                    "Last recorded ",
+                    new Date(group.lastUpdatedAt).toLocaleString()
+                  ] })
+                ]
+              },
+              group.domain
+            )) }) : null,
+            !recorderSessionsError && recorderGroups.length > 0 && recorderNav.mode === "sessions" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-list", children: recorderSessionsForSelectedDomain.map((session) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("button", { className: "sessions-row", onClick: () => void openRecorderSession(session.id), children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-run-heading", children: session.name }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-run-line", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-title", children: formatRecorderStatus(session.status) }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-row-chip", children: [
+                  session.steps.length,
+                  " step",
+                  session.steps.length === 1 ? "" : "s"
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-row-subtle", children: new Date(session.startedAt).toLocaleString() })
+            ] }, session.id)) }) : null
+          ] })
         ] }),
-        !sessionsError && sessionsNav.mode === "detail" && selectedSession ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
+        sessionsSurface === "analysis" && !sessionsError && sessionsNav.mode === "detail" && selectedSession ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-card", children: [
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { children: [
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { style: { marginBottom: 4 }, children: cleanSessionTitle(selectedSession.title) ?? "Saved Run" }),
@@ -30339,7 +30711,255 @@ function App() {
             ] }),
             selectedSession.debug.warnings.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: selectedSession.debug.warnings.join(" | ") }) : null
           ] })
-        ] }) : null
+        ] }) : null,
+        sessionsSurface === "recorder" && !recorderSessionsError && recorderNav.mode === "detail" && selectedRecorderSession ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "panel-card", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-detail-shell", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-detail-header", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-detail-titleblock", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { style: { marginBottom: 4 }, children: selectedRecorderSession.name }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-toolbar-meta", children: selectedRecorderSession.domain })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "row-actions recorder-detail-actions", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Button, { variant: "ghost", onClick: () => dispatchRecorderNav({ type: "back" }), children: "Back" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  variant: "ghost",
+                  onClick: () => void saveRecorderReview(true),
+                  disabled: recorderRequestState === "saving_review" || recorderRequestState === "generating",
+                  children: recorderRequestState === "saving_review" ? "Saving\u2026" : "Save Review"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  variant: "secondary",
+                  onClick: () => void generateRecorderOutputs(),
+                  disabled: selectedRecorderSession.steps.filter((step) => step.kept).length === 0 || recorderRequestState === "saving_review" || recorderRequestState === "generating",
+                  children: getRecorderGenerateLabel(recorderRequestState)
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  variant: "ghost",
+                  onClick: () => void deleteRecorderSession(selectedRecorderSession.id),
+                  disabled: recorderRequestState === "saving_review" || recorderRequestState === "generating",
+                  children: "Delete"
+                }
+              )
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "status-chip-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "chip", children: formatRecorderStatus(selectedRecorderSession.status) }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              selectedRecorderSession.steps.length,
+              " steps"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              selectedRecorderSession.steps.filter((step) => step.kept).length,
+              " kept"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              selectedRecorderSession.screenshotsCaptured,
+              " screenshots"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { className: "chip", children: [
+              selectedRecorderSession.pageSummaries?.length ?? 0,
+              " page summaries"
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-detail-meta", children: [
+            "Started ",
+            new Date(selectedRecorderSession.startedAt).toLocaleString(),
+            selectedRecorderSession.stoppedAt ? ` \xB7 Stopped ${new Date(selectedRecorderSession.stoppedAt).toLocaleString()}` : ""
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-detail-tabs", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+              "button",
+              {
+                className: `recorder-detail-tab${recorderDetailTab === "overview" ? " active" : ""}`,
+                onClick: () => setRecorderDetailTab("overview"),
+                children: "Overview"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+              "button",
+              {
+                className: `recorder-detail-tab${recorderDetailTab === "steps" ? " active" : ""}`,
+                onClick: () => setRecorderDetailTab("steps"),
+                children: "Steps"
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+              "button",
+              {
+                className: `recorder-detail-tab${recorderDetailTab === "results" ? " active" : ""}`,
+                onClick: () => setRecorderDetailTab("results"),
+                children: "Results"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-generate-controls", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "checkbox-field recorder-generate-option", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Checkbox,
+                {
+                  checked: recorderGenerationOptions.includeVision,
+                  onChange: (e) => setRecorderGenerationOptions((current) => ({ ...current, includeVision: e.target.checked })),
+                  disabled: recorderRequestState === "saving_review" || recorderRequestState === "generating"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "checkbox-field-body", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "checkbox-field-label", children: "Analyze screenshots" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "checkbox-field-desc", children: "Use screenshot pixels to understand visible UI state during generation." })
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "checkbox-field recorder-generate-option", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Checkbox,
+                {
+                  checked: recorderGenerationOptions.includePageSummaries,
+                  onChange: (e) => setRecorderGenerationOptions((current) => ({ ...current, includePageSummaries: e.target.checked })),
+                  disabled: recorderRequestState === "saving_review" || recorderRequestState === "generating"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "checkbox-field-body", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "checkbox-field-label", children: "Include page summaries" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "checkbox-field-desc", children: "Pass a lightweight visible-UI summary for each captured page in the flow." })
+              ] })
+            ] })
+          ] }),
+          recorderRequestState === "generating" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-request-banner", children: "Generating outputs from reviewed steps, screenshots, and page summaries\u2026" }) : null,
+          recorderDetailTab === "overview" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-detail-section", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-overview-grid", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-overview-metrics", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-grid recorder-metric-grid", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Status" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: formatRecorderStatus(selectedRecorderSession.status) })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Steps" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.steps.length })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Kept" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.steps.filter((step) => step.kept).length })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Screenshots" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.screenshotsCaptured })
+                ] })
+              ] }),
+              selectedRecorderSession.warnings.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: selectedRecorderSession.warnings.join(" | ") }) : null
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-url-stack", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(UrlCard, { label: "Start URL", value: selectedRecorderSession.startUrl }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(UrlCard, { label: "Last URL", value: selectedRecorderSession.lastUrl })
+            ] })
+          ] }) }) : null,
+          recorderDetailTab === "steps" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-detail-section", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "panel-head-row", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Reviewed Steps" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-toolbar-meta", children: "Cleaner labels and reduced noise are already applied here." })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-step-list", children: selectedRecorderSession.steps.map((step, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: `recorder-step-card${step.kept ? "" : " recorder-step-card-muted"}`, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-step-top", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "recorder-step-index", children: index + 1 }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "recorder-step-keep", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                    Checkbox,
+                    {
+                      checked: step.kept,
+                      onChange: (e) => {
+                        setSelectedRecorderSession((current) => current ? {
+                          ...current,
+                          steps: current.steps.map((item) => item.id === step.id ? { ...item, kept: e.target.checked } : item)
+                        } : current);
+                      }
+                    }
+                  ),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: "Keep" })
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                "input",
+                {
+                  className: "dt-input",
+                  value: step.title,
+                  onChange: (e) => {
+                    const value = e.target.value;
+                    setSelectedRecorderSession((current) => current ? {
+                      ...current,
+                      steps: current.steps.map((item) => item.id === step.id ? { ...item, title: value } : item)
+                    } : current);
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-step-meta", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: formatRecorderAction(step.action) }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: new Date(step.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) }),
+                step.selector ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: step.selector }) : null,
+                step.url ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: getRecorderUrlLabel(step.url) }) : null
+              ] }),
+              step.screenshot ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("img", { className: "recorder-step-image", src: step.screenshot.dataUrl, alt: step.title }) : null
+            ] }, step.id)) })
+          ] }) : null,
+          recorderDetailTab === "results" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-detail-section", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-results-summary", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-grid recorder-metric-grid", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Manual cases" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.generated?.manual_test_cases.length ?? 0 })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Scenario steps" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.generated?.playwright_scenario.steps.length ?? 0 })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Flow-derived" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.generated?.manual_test_cases.filter((testCase) => testCase.source === "flow").length ?? 0 })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Page-derived" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.generated?.manual_test_cases.filter((testCase) => testCase.source === "page").length ?? 0 })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Vision" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.lastGenerationOptions?.includeVision ? "on" : "off" })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "debug-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-key", children: "Page summaries" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "debug-val", children: selectedRecorderSession.lastGenerationOptions?.includePageSummaries !== false ? "on" : "off" })
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-toolbar-meta", children: "Generated outputs now combine recorded-flow cases with additional visited-page opportunities from page summaries and screenshots." })
+            ] }),
+            selectedRecorderSession.generated ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-generated-block", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Manual Cases" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-list", children: selectedRecorderSession.generated.manual_test_cases.map((testCase) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "manual-case", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "manual-case-header", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "manual-case-id", children: testCase.id }),
+                    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "manual-case-title", children: testCase.title }),
+                    testCase.source ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "sessions-row-chip", children: testCase.source }) : null
+                  ] }),
+                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-case-why", children: testCase.why }),
+                  testCase.evidence_files.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "manual-case-files", children: testCase.evidence_files.join(", ") }) : null,
+                  testCase.steps.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-generated-list", children: testCase.steps.map((item, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "trust-driver", children: item }, `${testCase.id}-step-${index}`)) }) : null
+                ] }, testCase.id)) })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "recorder-generated-block", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h4", { children: "Playwright Scenario" }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-generated-title", children: selectedRecorderSession.generated.playwright_scenario.title }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-generated-goal", children: selectedRecorderSession.generated.playwright_scenario.goal }),
+                /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "recorder-generated-list", children: selectedRecorderSession.generated.playwright_scenario.steps.map((step, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "trust-driver", children: [step.action, step.target, step.assertion].filter(Boolean).join(" | ") }, `${step.action}-${index}`)) })
+              ] })
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "sessions-empty recorder-results-empty", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-title", children: "No generated outputs yet" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "sessions-empty-desc", children: "Save your reviewed steps, then generate manual cases and a Playwright scenario from this flow." })
+            ] })
+          ] }) : null
+        ] }) }) : null
       ] }),
       tab === "settings" && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "panel-card", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(SettingsPanel, { settings, onSaved: setSettings }) })
     ] })

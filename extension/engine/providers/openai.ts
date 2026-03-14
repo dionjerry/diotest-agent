@@ -5,7 +5,12 @@ interface OpenAiStructuredRequest {
   userPrompt: string;
   schema: unknown;
   timeoutMs?: number;
+  userContent?: OpenAiStructuredContentPart[];
 }
+
+type OpenAiStructuredContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; dataUrl: string; detail?: "auto" | "low" | "high" };
 
 function parseJsonContent(content: unknown): unknown {
   if (typeof content !== "string") return null;
@@ -31,7 +36,16 @@ export async function generateStructured(request: OpenAiStructuredRequest): Prom
         model: request.model,
         messages: [
           { role: "system", content: request.systemPrompt },
-          { role: "user", content: request.userPrompt }
+          {
+            role: "user",
+            content: request.userContent?.length
+              ? request.userContent.map((part) => (
+                part.type === "text"
+                  ? { type: "text", text: part.text }
+                  : { type: "image_url", image_url: { url: part.dataUrl, detail: part.detail ?? "low" } }
+              ))
+              : request.userPrompt
+          }
         ],
         response_format: {
           type: "json_schema",
