@@ -8,6 +8,36 @@ import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
 
+function getModelOptionLabel(model: string): string {
+  if (model === "openrouter/free") return "Auto free router";
+  return model
+    .replace(/^openai\//, "")
+    .replace(/^meta-llama\//, "")
+    .replace(/^deepseek\//, "")
+    .replace(/^qwen\//, "");
+}
+
+const MODEL_OPTIONS = {
+  openai: [
+    {
+      group: "OpenAI",
+      options: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"],
+    },
+  ],
+  openrouter: [
+    {
+      group: "OpenRouter",
+      options: [
+        "openrouter/free",
+        "openai/gpt-4.1-mini",
+        "openai/gpt-4o-mini",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "deepseek/deepseek-chat-v3-0324:free",
+      ],
+    },
+  ],
+} satisfies Record<SettingsLatest["analysis"]["provider"], Array<{ group: string; options: string[] }>>;
+
 interface Props {
   settings: SettingsLatest;
   onSaved: (settings: SettingsLatest) => void;
@@ -81,6 +111,17 @@ export function SettingsPanel({ settings, onSaved }: Props) {
     setSaved(false);
   }
 
+  function setProvider(provider: SettingsLatest["analysis"]["provider"]) {
+    const next = structuredClone(draft);
+    next.analysis.provider = provider;
+    const models = MODEL_OPTIONS[provider][0]?.options ?? [];
+    if (!models.includes(next.analysis.model) && models[0]) {
+      next.analysis.model = models[0];
+    }
+    setDraft(next);
+    setSaved(false);
+  }
+
   async function save() {
     setSaveError(null);
     const result = await sendMessage<{
@@ -113,14 +154,25 @@ export function SettingsPanel({ settings, onSaved }: Props) {
       <div className="settings-section">
         <div className="settings-section-title">AI</div>
 
+        <Field label="Provider">
+          <select
+            className="dt-input"
+            value={draft.analysis.provider}
+            onChange={(e) => setProvider(e.target.value as SettingsLatest["analysis"]["provider"])}
+          >
+            <option value="openai">OpenAI</option>
+            <option value="openrouter">OpenRouter</option>
+          </select>
+        </Field>
+
         <Field label="API key">
           <Input
             type="password"
-            value={draft.auth.openaiApiKey}
-            onChange={(e) => set("auth.openaiApiKey", e.target.value)}
-            placeholder="sk-… or sk-ant-…"
+            value={draft.analysis.provider === "openrouter" ? draft.auth.openrouterApiKey : draft.auth.openaiApiKey}
+            onChange={(e) => set(draft.analysis.provider === "openrouter" ? "auth.openrouterApiKey" : "auth.openaiApiKey", e.target.value)}
+            placeholder={draft.analysis.provider === "openrouter" ? "sk-or-…" : "sk-…"}
           />
-          <span className="field-hint">OpenAI (sk-…) or Anthropic (sk-ant-…) key</span>
+          <span className="field-hint">{draft.analysis.provider === "openrouter" ? "OpenRouter API key" : "OpenAI API key"}</span>
         </Field>
 
         <Field label="Model">
@@ -128,19 +180,17 @@ export function SettingsPanel({ settings, onSaved }: Props) {
             className="dt-input"
             value={draft.analysis.model}
             onChange={(e) => set("analysis.model", e.target.value)}
+            title={draft.analysis.model}
           >
-            <optgroup label="Anthropic">
-              <option value="claude-opus-4-5">claude-opus-4-5</option>
-              <option value="claude-sonnet-4-5">claude-sonnet-4-5</option>
-              <option value="claude-haiku-4-5">claude-haiku-4-5</option>
-            </optgroup>
-            <optgroup label="OpenAI">
-              <option value="gpt-4.1-mini">gpt-4.1-mini</option>
-              <option value="gpt-4.1">gpt-4.1</option>
-              <option value="gpt-4o-mini">gpt-4o-mini</option>
-              <option value="gpt-4o">gpt-4o</option>
-            </optgroup>
+            {MODEL_OPTIONS[draft.analysis.provider].map(({ group, options }) => (
+              <optgroup key={group} label={group}>
+                {options.map((option) => (
+                  <option key={option} value={option}>{getModelOptionLabel(option)}</option>
+                ))}
+              </optgroup>
+            ))}
           </select>
+          <span className="field-hint" title={draft.analysis.model}>{draft.analysis.model}</span>
         </Field>
 
         <Field label="GitHub token" hint="Optional — required for deep scan on private repos">

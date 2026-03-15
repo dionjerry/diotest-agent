@@ -28,4 +28,13 @@ describe("settings range validation", () => {
     expect(result.errors["ui.eventThrottlePerSecond"]).toBeDefined();
     expect(result.errors["ui.screenshotDelayMs"]).toBeDefined();
   });
+
+  it("accepts provider switching without forcing API keys at save time", () => {
+    const openRouter = structuredClone(DEFAULT_SETTINGS);
+    openRouter.analysis.provider = "openrouter";
+    openRouter.analysis.model = "openai/gpt-4.1-mini";
+
+    const result = validateSettings(openRouter);
+    expect(result.valid).toBe(true);
+  });
 });

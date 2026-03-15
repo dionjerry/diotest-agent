@@ -3,7 +3,7 @@ import { augmentWithGithubApi } from "../github/augment";
 import { buildRepairPrompt, buildSystemPrompt, buildUserPrompt, PROMPT_VERSION } from "../prompts/v1";
 import { assertSettingsForExecution } from "../runtime/gating";
 import type { SettingsLatest } from "@diotest/domain/settings/types";
-import { generateStructured } from "@diotest/providers/openai";
+import { generateStructured } from "@diotest/providers/index";
 import { AI_ANALYSIS_SCHEMA, isValidAiAnalysisResult } from "@diotest/domain/analysis/schema";
 import { summarizeContext } from "./summarize";
 import { blendRiskScores, computeDeterministicRiskScore } from "./risk";
@@ -33,8 +33,13 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
     return buildFailure("Safe mode blocks AI analysis.", ERROR_CODES.SETTINGS_VALIDATION_FAILED);
   }
 
-  if (!settings.auth.openaiApiKey.trim()) {
-    return buildFailure("OpenAI API key is missing. Add it in Settings.");
+  const providerApiKey = settings.analysis.provider === "openrouter"
+    ? settings.auth.openrouterApiKey.trim()
+    : settings.auth.openaiApiKey.trim();
+  const providerName = settings.analysis.provider === "openrouter" ? "OpenRouter" : "OpenAI";
+
+  if (!providerApiKey) {
+    return buildFailure(`${providerName} API key is missing. Add it in Settings.`);
   }
 
   const extracted = await request.extractContext();
@@ -106,7 +111,8 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
   const userPrompt = buildUserPrompt(request.mode, workingContext, summary);
 
   const first = await generateStructured({
-    apiKey: settings.auth.openaiApiKey,
+    provider: settings.analysis.provider,
+    apiKey: providerApiKey,
     model: settings.analysis.model,
     systemPrompt,
     userPrompt,
@@ -123,7 +129,8 @@ export async function runAiAnalyze(request: AnalyzeRequest): Promise<AnalyzeResu
   }
   if (!aiPayload) {
     const repair = await generateStructured({
-      apiKey: settings.auth.openaiApiKey,
+      provider: settings.analysis.provider,
+      apiKey: providerApiKey,
       model: settings.analysis.model,
       systemPrompt,
       userPrompt: buildRepairPrompt(JSON.stringify(first.data)),

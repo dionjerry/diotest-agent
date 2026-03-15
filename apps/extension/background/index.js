@@ -77,11 +77,13 @@ var DEFAULT_SETTINGS = {
     recordScreenshots: true
   },
   analysis: {
+    provider: "openai",
     model: "gpt-4.1-mini",
     deepScanDefault: false
   },
   auth: {
     openaiApiKey: "",
+    openrouterApiKey: "",
     githubToken: ""
   },
   telemetry: {
@@ -581,6 +583,71 @@ async function generateStructured(request) {
   }
 }
 
+// packages/providers/src/openrouter.ts
+function parseJsonContent2(content) {
+  if (typeof content !== "string") return null;
+  try {
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+async function generateStructuredWithOpenRouter(request) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), request.timeoutMs ?? 45e3);
+  try {
+    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${request.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: request.model,
+        messages: [
+          { role: "system", content: request.systemPrompt },
+          {
+            role: "user",
+            content: request.userContent?.length ? request.userContent.map((part) => part.type === "text" ? { type: "text", text: part.text } : { type: "image_url", image_url: { url: part.dataUrl, detail: part.detail ?? "low" } }) : request.userPrompt
+          }
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "diotest_ai_analysis",
+            strict: true,
+            schema: request.schema
+          }
+        }
+      }),
+      signal: controller.signal
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      return { ok: false, error: `OpenRouter API error ${resp.status}: ${text}` };
+    }
+    const json = await resp.json();
+    const content = json.choices?.[0]?.message?.content;
+    const parsed = parseJsonContent2(content);
+    if (!parsed) {
+      return { ok: false, error: "Model returned non-JSON content." };
+    }
+    return { ok: true, data: parsed };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "OpenRouter request failed." };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// packages/providers/src/index.ts
+async function generateStructured2(request) {
+  if (request.provider === "openrouter") {
+    return generateStructuredWithOpenRouter(request);
+  }
+  return generateStructured(request);
+}
+
 // packages/domain/src/recorder/schema.ts
 var UI_RECORDER_GENERATION_SCHEMA = {
   type: "object",
@@ -799,16 +866,19 @@ async function generateUiRecorderArtifacts(rawSettings, session, options) {
   if (settings.safeMode.enabled) {
     return { ok: false, error: "Safe mode blocks UI recorder generation.", code: ERROR_CODES.SETTINGS_VALIDATION_FAILED };
   }
-  if (!settings.auth.openaiApiKey.trim()) {
-    return { ok: false, error: "OpenAI API key is missing. Add it in Settings." };
+  const providerApiKey = settings.analysis.provider === "openrouter" ? settings.auth.openrouterApiKey.trim() : settings.auth.openaiApiKey.trim();
+  const providerName = settings.analysis.provider === "openrouter" ? "OpenRouter" : "OpenAI";
+  if (!providerApiKey) {
+    return { ok: false, error: `${providerName} API key is missing. Add it in Settings.` };
   }
   const keptCount = session.steps.filter((step) => step.kept).length;
   if (keptCount === 0) {
     return { ok: false, error: "Keep at least one recorded step before generating outputs." };
   }
   const request = buildVisionContent(session, options);
-  const performGeneration = async (includeVision) => generateStructured({
-    apiKey: settings.auth.openaiApiKey,
+  const performGeneration = async (includeVision) => generateStructured2({
+    provider: settings.analysis.provider,
+    apiKey: providerApiKey,
     model: settings.analysis.model,
     systemPrompt: buildSystemPrompt({ ...options, includeVision }),
     userPrompt: request.userPrompt,
@@ -1454,8 +1524,10 @@ async function runAiAnalyze(request) {
   if (settings.safeMode.enabled) {
     return buildFailure("Safe mode blocks AI analysis.", ERROR_CODES.SETTINGS_VALIDATION_FAILED);
   }
-  if (!settings.auth.openaiApiKey.trim()) {
-    return buildFailure("OpenAI API key is missing. Add it in Settings.");
+  const providerApiKey = settings.analysis.provider === "openrouter" ? settings.auth.openrouterApiKey.trim() : settings.auth.openaiApiKey.trim();
+  const providerName = settings.analysis.provider === "openrouter" ? "OpenRouter" : "OpenAI";
+  if (!providerApiKey) {
+    return buildFailure(`${providerName} API key is missing. Add it in Settings.`);
   }
   const extracted = await request.extractContext();
   if (!extracted.ok) {
@@ -1517,8 +1589,9 @@ async function runAiAnalyze(request) {
   }
   const systemPrompt = buildSystemPrompt2();
   const userPrompt = buildUserPrompt(request.mode, workingContext, summary);
-  const first = await generateStructured({
-    apiKey: settings.auth.openaiApiKey,
+  const first = await generateStructured2({
+    provider: settings.analysis.provider,
+    apiKey: providerApiKey,
     model: settings.analysis.model,
     systemPrompt,
     userPrompt,
@@ -1532,8 +1605,9 @@ async function runAiAnalyze(request) {
     aiPayload = first.data;
   }
   if (!aiPayload) {
-    const repair = await generateStructured({
-      apiKey: settings.auth.openaiApiKey,
+    const repair = await generateStructured2({
+      provider: settings.analysis.provider,
+      apiKey: providerApiKey,
       model: settings.analysis.model,
       systemPrompt,
       userPrompt: buildRepairPrompt(JSON.stringify(first.data)),

@@ -16,6 +16,8 @@ describe("settings migration", () => {
     expect(migrated.pr.maxFiles).toBe(90);
     expect(migrated.pr.maxDiffLines).toBe(DEFAULT_SETTINGS.pr.maxDiffLines);
     expect(migrated.safeMode.enabled).toBe(true);
+    expect(migrated.analysis.provider).toBe("openai");
+    expect(migrated.auth.openrouterApiKey).toBe("");
     expect(migrated.version).toBe(1);
   });
 });

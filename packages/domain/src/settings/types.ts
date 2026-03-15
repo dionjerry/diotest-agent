@@ -14,11 +14,13 @@ export interface SettingsV1 {
     recordScreenshots: boolean;
   };
   analysis: {
+    provider: "openai" | "openrouter";
     model: string;
     deepScanDefault: boolean;
   };
   auth: {
     openaiApiKey: string;
+    openrouterApiKey: string;
     githubToken: string;
   };
   telemetry: {

@@ -36,6 +36,7 @@ DioTest is a local-first AI testing assistant delivered as a Manifest V3 browser
 - Page visits contribute additional test opportunity discovery beyond exact clicks.
 - The workflow stays local-first and extension-native, with user-controlled settings and keys.
 - Debug output remains explainable instead of hiding why a result was produced.
+- Local/self-hosted usage can run through either OpenAI or OpenRouter with a user-supplied key.
 
 ## Recorder Review Flow
 

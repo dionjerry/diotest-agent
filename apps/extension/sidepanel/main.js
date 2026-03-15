@@ -28474,11 +28474,13 @@ var DEFAULT_SETTINGS = {
     recordScreenshots: true
   },
   analysis: {
+    provider: "openai",
     model: "gpt-4.1-mini",
     deepScanDefault: false
   },
   auth: {
     openaiApiKey: "",
+    openrouterApiKey: "",
     githubToken: ""
   },
   telemetry: {
@@ -28613,6 +28615,30 @@ function Input(props) {
 
 // apps/extension/sidepanel/components/SettingsPanel.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
+function getModelOptionLabel(model) {
+  if (model === "openrouter/free") return "Auto free router";
+  return model.replace(/^openai\//, "").replace(/^meta-llama\//, "").replace(/^deepseek\//, "").replace(/^qwen\//, "");
+}
+var MODEL_OPTIONS = {
+  openai: [
+    {
+      group: "OpenAI",
+      options: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"]
+    }
+  ],
+  openrouter: [
+    {
+      group: "OpenRouter",
+      options: [
+        "openrouter/free",
+        "openai/gpt-4.1-mini",
+        "openai/gpt-4o-mini",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "deepseek/deepseek-chat-v3-0324:free"
+      ]
+    }
+  ]
+};
 function Field(props) {
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "field-wrap", children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("label", { className: "field-label", children: props.label }),
@@ -28658,6 +28684,16 @@ function SettingsPanel({ settings, onSaved }) {
     setDraft(next);
     setSaved(false);
   }
+  function setProvider(provider) {
+    const next = structuredClone(draft);
+    next.analysis.provider = provider;
+    const models = MODEL_OPTIONS[provider][0]?.options ?? [];
+    if (!models.includes(next.analysis.model) && models[0]) {
+      next.analysis.model = models[0];
+    }
+    setDraft(next);
+    setSaved(false);
+  }
   async function save() {
     setSaveError(null);
     const result = await sendMessage({ type: "settings.save", payload: draft });
@@ -28680,39 +28716,43 @@ function SettingsPanel({ settings, onSaved }) {
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "settings-root", children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "settings-section", children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "settings-section-title", children: "AI" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: "Provider", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+        "select",
+        {
+          className: "dt-input",
+          value: draft.analysis.provider,
+          onChange: (e) => setProvider(e.target.value),
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "openai", children: "OpenAI" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "openrouter", children: "OpenRouter" })
+          ]
+        }
+      ) }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Field, { label: "API key", children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           Input,
           {
             type: "password",
-            value: draft.auth.openaiApiKey,
-            onChange: (e) => set("auth.openaiApiKey", e.target.value),
-            placeholder: "sk-\u2026 or sk-ant-\u2026"
+            value: draft.analysis.provider === "openrouter" ? draft.auth.openrouterApiKey : draft.auth.openaiApiKey,
+            onChange: (e) => set(draft.analysis.provider === "openrouter" ? "auth.openrouterApiKey" : "auth.openaiApiKey", e.target.value),
+            placeholder: draft.analysis.provider === "openrouter" ? "sk-or-\u2026" : "sk-\u2026"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "field-hint", children: "OpenAI (sk-\u2026) or Anthropic (sk-ant-\u2026) key" })
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "field-hint", children: draft.analysis.provider === "openrouter" ? "OpenRouter API key" : "OpenAI API key" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: "Model", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
-        "select",
-        {
-          className: "dt-input",
-          value: draft.analysis.model,
-          onChange: (e) => set("analysis.model", e.target.value),
-          children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("optgroup", { label: "Anthropic", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "claude-opus-4-5", children: "claude-opus-4-5" }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "claude-sonnet-4-5", children: "claude-sonnet-4-5" }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "claude-haiku-4-5", children: "claude-haiku-4-5" })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("optgroup", { label: "OpenAI", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4.1-mini", children: "gpt-4.1-mini" }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4.1", children: "gpt-4.1" }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4o-mini", children: "gpt-4o-mini" }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: "gpt-4o", children: "gpt-4o" })
-            ] })
-          ]
-        }
-      ) }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Field, { label: "Model", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+          "select",
+          {
+            className: "dt-input",
+            value: draft.analysis.model,
+            onChange: (e) => set("analysis.model", e.target.value),
+            title: draft.analysis.model,
+            children: MODEL_OPTIONS[draft.analysis.provider].map(({ group, options }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("optgroup", { label: group, children: options.map((option) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: option, children: getModelOptionLabel(option) }, option)) }, group))
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "field-hint", title: draft.analysis.model, children: draft.analysis.model })
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: "GitHub token", hint: "Optional \u2014 required for deep scan on private repos", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
         Input,
         {
@@ -29795,10 +29835,33 @@ function CopyButton({ text, label = "Copy" }) {
   }
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { className: `manual-case-copy${copied ? " copied" : ""}`, onClick: () => void handleCopy(), children: copied ? "Copied!" : label });
 }
-var MODEL_OPTIONS = [
-  { group: "Anthropic", options: ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"] },
-  { group: "OpenAI", options: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"] }
-];
+function getModelOptionLabel2(model) {
+  if (model === "openrouter/free") return "Auto free router";
+  return model.replace(/^openai\//, "").replace(/^meta-llama\//, "").replace(/^deepseek\//, "").replace(/^qwen\//, "");
+}
+function formatAnalyzeError(error) {
+  if (!error.startsWith("OpenRouter API error")) return error;
+  const statusMatch = error.match(/^OpenRouter API error (\d+):\s*/);
+  const status = statusMatch?.[1];
+  const payload = error.slice(statusMatch?.[0]?.length ?? 0);
+  try {
+    const parsed = JSON.parse(payload);
+    const message = parsed.error?.metadata?.raw || parsed.error?.message || payload;
+    if (status === "429") return `OpenRouter rate limit: ${message}`;
+    if (status === "404") return `OpenRouter model unavailable: ${message}`;
+    return `OpenRouter error ${status ?? ""}: ${message}`.trim();
+  } catch {
+    return error;
+  }
+}
+var MODEL_OPTIONS2 = {
+  openai: [
+    { group: "OpenAI", options: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"] }
+  ],
+  openrouter: [
+    { group: "OpenRouter", options: ["openrouter/free", "openai/gpt-4.1-mini", "openai/gpt-4o-mini", "meta-llama/llama-3.3-70b-instruct:free", "deepseek/deepseek-chat-v3-0324:free"] }
+  ]
+};
 var DEFAULT_RECORDER_GENERATION_OPTIONS = {
   includeVision: false,
   includePageSummaries: true
@@ -30268,9 +30331,14 @@ function App() {
                 className: "model-select",
                 value: settings.analysis.model,
                 onChange: (e) => void onChangeModel(e.target.value),
-                children: MODEL_OPTIONS.map(({ group, options }) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("optgroup", { label: group, children: options.map((m) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("option", { value: m, children: m }, m)) }, group))
+                title: settings.analysis.model,
+                children: MODEL_OPTIONS2[settings.analysis.provider].map(({ group, options }) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("optgroup", { label: group, children: options.map((m) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("option", { value: m, children: getModelOptionLabel2(m) }, m)) }, group))
               }
             )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "model-selection-meta", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "model-selection-provider", children: settings.analysis.provider === "openrouter" ? "OpenRouter" : "OpenAI" }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "model-selection-value", title: settings.analysis.model, children: settings.analysis.model })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: "deep-scan-row", children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
@@ -30284,7 +30352,7 @@ function App() {
             /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "deep-scan-hint", children: "+GitHub API context" })
           ] })
         ] }) }),
-        analyzeError && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: analyzeError }),
+        analyzeError && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "warning-banner", children: formatAnalyzeError(analyzeError) }),
         analyzing && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "panel-card", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "analyzing-state", children: [
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "spinner" }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "analyzing-label", children: "Running analysis\u2026" })

@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@diotest/domain/settings/defaults";
 import type { UiRecorderGenerationResult, UiRecorderSession } from "@diotest/domain/recorder/types";
 
-vi.mock("@diotest/providers/openai", () => ({
+vi.mock("@diotest/providers/index", () => ({
   generateStructured: vi.fn(),
 }));
 
-import { generateStructured } from "@diotest/providers/openai";
+import { generateStructured } from "@diotest/providers/index";
 import { generateUiRecorderArtifacts } from "@diotest/engine/recorder/orchestrator";
 
 const validResult: UiRecorderGenerationResult = {
@@ -140,5 +140,24 @@ describe("ui recorder orchestrator", () => {
     expect(vi.mocked(generateStructured)).toHaveBeenCalledTimes(2);
     expect(vi.mocked(generateStructured).mock.calls[0]?.[0].userContent?.length).toBeGreaterThan(0);
     expect(vi.mocked(generateStructured).mock.calls[1]?.[0].userContent).toBeUndefined();
+  });
+
+  it("uses the selected provider for generation", async () => {
+    vi.mocked(generateStructured).mockResolvedValue({ ok: true, data: validResult });
+
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      analysis: { ...DEFAULT_SETTINGS.analysis, provider: "openrouter" as const, model: "openai/gpt-4.1-mini" },
+      auth: { ...DEFAULT_SETTINGS.auth, openrouterApiKey: "sk-or-test" },
+    };
+
+    const result = await generateUiRecorderArtifacts(settings, buildSession(), {
+      includeVision: false,
+      includePageSummaries: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(vi.mocked(generateStructured).mock.calls[0]?.[0].provider).toBe("openrouter");
+    expect(vi.mocked(generateStructured).mock.calls[0]?.[0].apiKey).toBe("sk-or-test");
   });
 });
