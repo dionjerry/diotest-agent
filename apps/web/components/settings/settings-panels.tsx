@@ -26,10 +26,8 @@ import { Label } from '@/components/ui/label';
 const initialState: ActionState = {};
 
 export function OAuthSettingsCard({
-  organizationId,
   oauth,
 }: {
-  organizationId?: string;
   oauth: SettingsResponse['oauth'];
 }) {
   const [state, formAction] = useActionState(saveOAuthSettingsAction, initialState);
@@ -41,13 +39,12 @@ export function OAuthSettingsCard({
           <div className="text-xs uppercase tracking-[0.18em] text-soft">Auth provider config</div>
           <h2 className="mt-3 text-xl font-semibold text-text">Google OAuth</h2>
           <p className="mt-2 text-sm leading-6 text-muted">
-            Editable for testing. Stored encrypted in the database and used before env fallback.
+            Deployment-wide Google sign-in settings. Stored encrypted in the database and used before env fallback.
           </p>
         </div>
         <Badge tone={oauth.enabled ? 'success' : 'warn'}>{oauth.enabled ? 'Enabled' : 'Disabled'}</Badge>
       </div>
       <form action={formAction} className="mt-6 space-y-5">
-        {organizationId ? <input type="hidden" name="organizationId" value={organizationId} /> : null}
         <label className="flex items-center gap-3 rounded-2xl border border-line bg-zinc-950/40 px-4 py-3 text-sm text-zinc-200">
           <input type="checkbox" name="enabled" defaultChecked={oauth.enabled} className="h-4 w-4 accent-emerald-500" />
           Enable Google OAuth sign-in for this deployment

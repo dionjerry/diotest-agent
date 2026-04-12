@@ -10,6 +10,10 @@ export type BootstrapGuardState = {
   unavailableMessage?: string;
 };
 
+function isUnavailableAppApiError(error: unknown): error is AppApiError {
+  return error instanceof AppApiError && error.code === 'unavailable';
+}
+
 export async function requireUser() {
   const session = await auth();
   if (!session?.user?.id) {
@@ -29,7 +33,7 @@ export async function requireOnboardedUser() {
 
     return { user, bootstrap, unavailable: false } satisfies BootstrapGuardState;
   } catch (error) {
-    if (error instanceof AppApiError && error.code === 'unavailable') {
+    if (isUnavailableAppApiError(error)) {
       return {
         user,
         bootstrap: null,
@@ -48,7 +52,7 @@ export async function requireOnboardingState() {
     const bootstrap = await getBootstrap(user.id);
     return { user, bootstrap, unavailable: false } satisfies BootstrapGuardState;
   } catch (error) {
-    if (error instanceof AppApiError && error.code === 'unavailable') {
+    if (isUnavailableAppApiError(error)) {
       return {
         user,
         bootstrap: null,

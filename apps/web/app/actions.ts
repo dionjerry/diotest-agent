@@ -513,7 +513,6 @@ export async function finalizeOnboardingAction(_: ActionState, formData: FormDat
 }
 
 export async function saveOAuthSettingsAction(_: ActionState, formData: FormData): Promise<ActionState> {
-  const organizationId = readString(formData, 'organizationId') || undefined;
   const enabled = readBoolean(formData, 'enabled');
   const clientId = readString(formData, 'clientId');
   const clientSecret = readString(formData, 'clientSecret');
@@ -526,7 +525,6 @@ export async function saveOAuthSettingsAction(_: ActionState, formData: FormData
   }
 
   await saveOAuthSettings({
-    organizationId,
     enabled,
     provider: 'google',
     clientId,

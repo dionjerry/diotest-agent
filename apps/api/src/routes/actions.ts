@@ -269,6 +269,13 @@ export async function registerActionRoutes(app: FastifyInstance) {
         return { message: 'Action not found' };
       }
 
+      if (action.status !== 'awaiting_approval') {
+        reply.code(409);
+        return {
+          message: `Action can only be approved from awaiting_approval. Current status: ${action.status}.`,
+        };
+      }
+
       const approved = await prisma.agentAction.update({
         where: { id: payload.actionId },
         data: { status: 'approved' },

@@ -11,6 +11,7 @@
     "types": ["chrome", "node", "vitest/globals"],
     "baseUrl": ".",
     "paths": {
+      "@/*": ["apps/web/*"],
       "@diotest/domain": ["packages/domain/src"],
       "@diotest/domain/*": ["packages/domain/src/*"],
       "@diotest/engine": ["packages/engine/src"],

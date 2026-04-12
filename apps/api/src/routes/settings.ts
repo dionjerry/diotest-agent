@@ -122,7 +122,7 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
       query.projectId
         ? prisma.integrationConnection.findMany({ where: { projectId: query.projectId } })
         : Promise.resolve([]),
-      getSecret(query.organizationId ? 'ORGANIZATION' : 'SYSTEM', 'oauth.google', query.organizationId),
+      getSecret('SYSTEM', 'oauth.google'),
       getSecret(query.projectId ? 'PROJECT' : query.organizationId ? 'ORGANIZATION' : 'SYSTEM', query.projectId ? 'ai.project' : 'ai.org', query.organizationId, query.projectId),
     ]);
 
@@ -192,32 +192,32 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
   app.post('/settings/oauth', async (request, reply) => {
     try {
       const payload = oauthSchema.parse(request.body);
+      const existingSecret = await getSecret('SYSTEM', 'oauth.google');
+      const existingConfig = existingSecret ? decryptPayload<OAuthProviderConfig>(existingSecret) : null;
 
       const config: OAuthProviderConfig = {
         enabled: payload.enabled,
         provider: payload.provider,
         clientId: payload.clientId,
-        clientSecret: payload.clientSecret,
+        clientSecret: payload.clientSecret || existingConfig?.clientSecret,
         authUrl: payload.authUrl,
         tokenUrl: payload.tokenUrl,
         userInfoUrl: payload.userInfoUrl,
       };
 
-      const scope = payload.organizationId ? 'ORGANIZATION' : 'SYSTEM';
-      await upsertSecret(scope, 'oauth.google', config as unknown as Record<string, unknown>, payload.organizationId);
-      await upsertSetting(scope, 'oauth.google.meta', { enabled: payload.enabled, provider: payload.provider }, payload.organizationId);
+      await upsertSecret('SYSTEM', 'oauth.google', config as unknown as Record<string, unknown>);
+      await upsertSetting('SYSTEM', 'oauth.google.meta', { enabled: payload.enabled, provider: payload.provider });
 
       logEvent(request.log, 'oauth.settings.saved', {
         requestId: request.id,
-        organizationId: payload.organizationId,
         status: 'success',
       });
       logDebug(request.log, 'oauth.settings.saved.debug', {
         requestId: request.id,
-        organizationId: payload.organizationId,
+        scope: 'SYSTEM',
         enabled: payload.enabled,
         provider: payload.provider,
-        hasClientSecret: Boolean(payload.clientSecret),
+        hasClientSecret: Boolean(config.clientSecret),
         changedKeys: ['enabled', 'provider', 'clientId', 'clientSecret', 'authUrl', 'tokenUrl', 'userInfoUrl'],
         status: 'success',
       });

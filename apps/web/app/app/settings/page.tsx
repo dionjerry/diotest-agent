@@ -185,7 +185,7 @@ export default async function SettingsPage() {
                 </section>
 
                 <section className="grid gap-5 xl:grid-cols-2">
-                  <OAuthSettingsCard organizationId={bootstrap.organization?.id} oauth={settings.oauth} />
+                  <OAuthSettingsCard oauth={settings.oauth} />
                   <AiSettingsCard organizationId={bootstrap.organization?.id} projectId={bootstrap.project?.id} ai={settings.ai} />
                 </section>
                 {bootstrap.project ? <IntegrationSecretsCard projectId={bootstrap.project.id} integrations={settings.integrations} /> : null}
