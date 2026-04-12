@@ -1,0 +1,13 @@
+node_modules
+.npm-cache
+.next
+apps/web/.next
+apps/api/dist
+.git
+.gitignore
+coverage
+.vscode
+.DS_Store
+.env
+apps/web/.env
+apps/api/.env
