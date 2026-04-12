@@ -174,11 +174,45 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
   );
 }
 
-// ── Model options including Claude ──
-const MODEL_OPTIONS = [
-  { group: "Anthropic", options: ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"] },
-  { group: "OpenAI",    options: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"] },
-] as const;
+function getModelOptionLabel(model: string): string {
+  if (model === "openrouter/free") return "Auto free router";
+  return model
+    .replace(/^openai\//, "")
+    .replace(/^meta-llama\//, "")
+    .replace(/^deepseek\//, "")
+    .replace(/^qwen\//, "");
+}
+
+function formatAnalyzeError(error: string): string {
+  if (!error.startsWith("OpenRouter API error")) return error;
+  const statusMatch = error.match(/^OpenRouter API error (\d+):\s*/);
+  const status = statusMatch?.[1];
+  const payload = error.slice(statusMatch?.[0]?.length ?? 0);
+
+  try {
+    const parsed = JSON.parse(payload) as {
+      error?: {
+        message?: string;
+        metadata?: { raw?: string };
+      };
+    };
+    const message = parsed.error?.metadata?.raw || parsed.error?.message || payload;
+    if (status === "429") return `OpenRouter rate limit: ${message}`;
+    if (status === "404") return `OpenRouter model unavailable: ${message}`;
+    return `OpenRouter error ${status ?? ""}: ${message}`.trim();
+  } catch {
+    return error;
+  }
+}
+
+const MODEL_OPTIONS = {
+  openai: [
+    { group: "OpenAI", options: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"] },
+  ],
+  openrouter: [
+    { group: "OpenRouter", options: ["openrouter/free", "openai/gpt-4.1-mini", "openai/gpt-4o-mini", "meta-llama/llama-3.3-70b-instruct:free", "deepseek/deepseek-chat-v3-0324:free"] },
+  ],
+} satisfies Record<SettingsLatest["analysis"]["provider"], Array<{ group: string; options: string[] }>>;
 
 const DEFAULT_RECORDER_GENERATION_OPTIONS: UiRecorderGenerationOptions = {
   includeVision: false,
@@ -709,15 +743,24 @@ export default function App() {
                     className="model-select"
                     value={settings.analysis.model}
                     onChange={(e) => void onChangeModel(e.target.value)}
+                    title={settings.analysis.model}
                   >
-                    {MODEL_OPTIONS.map(({ group, options }) => (
+                    {MODEL_OPTIONS[settings.analysis.provider].map(({ group, options }) => (
                       <optgroup key={group} label={group}>
                         {options.map((m) => (
-                          <option key={m} value={m}>{m}</option>
+                          <option key={m} value={m}>{getModelOptionLabel(m)}</option>
                         ))}
                       </optgroup>
                     ))}
                   </select>
+                </div>
+                <div className="model-selection-meta">
+                  <span className="model-selection-provider">
+                    {settings.analysis.provider === "openrouter" ? "OpenRouter" : "OpenAI"}
+                  </span>
+                  <span className="model-selection-value" title={settings.analysis.model}>
+                    {settings.analysis.model}
+                  </span>
                 </div>
                 <label className="deep-scan-row">
                   <Checkbox
@@ -731,7 +774,7 @@ export default function App() {
             </div>
 
             {/* Error */}
-            {analyzeError && <div className="warning-banner">{analyzeError}</div>}
+            {analyzeError && <div className="warning-banner">{formatAnalyzeError(analyzeError)}</div>}
 
             {/* Analyzing state */}
             {analyzing && (

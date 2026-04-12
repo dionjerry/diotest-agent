@@ -1,1 +1,21 @@
-{ "name": "@diotest/api", "private": true, "type": "module" }
+{
+  "name": "@diotest/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "googleapis": "^171.4.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.3"
+  }
+}

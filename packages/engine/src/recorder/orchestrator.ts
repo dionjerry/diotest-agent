@@ -1,4 +1,4 @@
-import { generateStructured } from "@diotest/providers/openai";
+import { generateStructured } from "@diotest/providers/index";
 import { assertSettingsForExecution } from "../runtime/gating";
 import type { SettingsLatest } from "@diotest/domain/settings/types";
 import { ERROR_CODES } from "@diotest/domain/errors/codes";
@@ -202,8 +202,13 @@ export async function generateUiRecorderArtifacts(
   if (settings.safeMode.enabled) {
     return { ok: false, error: "Safe mode blocks UI recorder generation.", code: ERROR_CODES.SETTINGS_VALIDATION_FAILED };
   }
-  if (!settings.auth.openaiApiKey.trim()) {
-    return { ok: false, error: "OpenAI API key is missing. Add it in Settings." };
+  const providerApiKey = settings.analysis.provider === "openrouter"
+    ? settings.auth.openrouterApiKey.trim()
+    : settings.auth.openaiApiKey.trim();
+  const providerName = settings.analysis.provider === "openrouter" ? "OpenRouter" : "OpenAI";
+
+  if (!providerApiKey) {
+    return { ok: false, error: `${providerName} API key is missing. Add it in Settings.` };
   }
 
   const keptCount = session.steps.filter((step) => step.kept).length;
@@ -213,7 +218,8 @@ export async function generateUiRecorderArtifacts(
 
   const request = buildVisionContent(session, options);
   const performGeneration = async (includeVision: boolean) => generateStructured({
-    apiKey: settings.auth.openaiApiKey,
+    provider: settings.analysis.provider,
+    apiKey: providerApiKey,
     model: settings.analysis.model,
     systemPrompt: buildSystemPrompt({ ...options, includeVision }),
     userPrompt: request.userPrompt,

@@ -16,11 +16,13 @@ export const DEFAULT_SETTINGS: SettingsLatest = {
     recordScreenshots: true
   },
   analysis: {
+    provider: "openai",
     model: "gpt-4.1-mini",
     deepScanDefault: false
   },
   auth: {
     openaiApiKey: "",
+    openrouterApiKey: "",
     githubToken: ""
   },
   telemetry: {

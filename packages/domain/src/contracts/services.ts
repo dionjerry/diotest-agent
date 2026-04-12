@@ -21,7 +21,10 @@ export interface SessionService {
   listSessions(): Promise<unknown>;
 }
 
+export type ProviderName = "openai" | "openrouter";
+
 export interface ProviderRequest {
+  provider: ProviderName;
   apiKey: string;
   model: string;
   systemPrompt: string;

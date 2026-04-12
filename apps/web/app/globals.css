@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  min-height: 100%;
+  background: #09090b;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top, rgba(16, 185, 129, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(24, 24, 27, 0.92), rgba(9, 9, 11, 1));
+  color: #fafafa;
+  font-feature-settings: "ss01" on, "cv02" on, "cv03" on;
+}
+
+* {
+  border-color: rgba(63, 63, 70, 0.9);
+}
+
+::selection {
+  background: rgba(16, 185, 129, 0.24);
+  color: #ecfdf5;
+}
+
+@layer base {
+  body {
+    @apply font-sans antialiased;
+  }
+
+  a {
+    @apply transition-colors;
+  }
+}
+
+@layer components {
+  .shell-border {
+    @apply border border-line/80;
+  }
+
+  .surface-card {
+    @apply rounded-3xl border border-line/80 bg-panel/90 shadow-panel backdrop-blur;
+  }
+
+  .surface-strong {
+    @apply rounded-3xl border border-lineStrong/80 bg-panelStrong/85 shadow-panel backdrop-blur;
+  }
+
+  .label-kicker {
+    @apply text-[0.7rem] font-semibold uppercase tracking-[0.22em] text-brand;
+  }
+
+  .copy-muted {
+    @apply text-sm leading-6 text-muted;
+  }
+}

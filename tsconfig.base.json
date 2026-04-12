@@ -11,9 +11,14 @@
     "types": ["chrome", "node", "vitest/globals"],
     "baseUrl": ".",
     "paths": {
+      "@/*": ["apps/web/*"],
+      "@diotest/domain": ["packages/domain/src"],
       "@diotest/domain/*": ["packages/domain/src/*"],
+      "@diotest/engine": ["packages/engine/src"],
       "@diotest/engine/*": ["packages/engine/src/*"],
+      "@diotest/providers": ["packages/providers/src"],
       "@diotest/providers/*": ["packages/providers/src/*"],
+      "@diotest/renderers": ["packages/renderers/src"],
       "@diotest/renderers/*": ["packages/renderers/src/*"]
     }
   }
