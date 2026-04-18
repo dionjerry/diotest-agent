@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { AuthError } from 'next-auth';
 import { revalidatePath } from 'next/cache';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import {
@@ -12,8 +13,9 @@ import {
   createAgentAction,
   createOrganization,
   createProject,
+  saveRepositoryConnection,
+  saveRepositorySecret,
   saveAiSettings,
-  saveGithubConnection,
   saveIntegration,
   saveIntegrationSecret,
   saveOAuthSettings,
@@ -23,8 +25,11 @@ import { auth, signIn, signOut } from '@/lib/auth';
 import { getPersistedIntegrationState, getIntegrationName, persistIntegrationConnection, type IntegrationType } from '@/lib/integration-connections';
 import { isSmtpConfigured, sendPasswordResetEmail } from '@/lib/mailer';
 import { prisma } from '@/lib/prisma';
+import { reconcileGitHubWebhook, reconcileGitLabWebhook, type RepositoryProvider } from '@/lib/repository-provider-api';
+import { decodeCookieValue, REPOSITORY_FLOW_COOKIES, type GitHubInstallationCookie, type GitLabOAuthCookie } from '@/lib/repository-flow';
 import { logServerError, logServerEvent } from '@/lib/server-logger';
 import { absoluteUrl, slugify } from '@/lib/utils';
+import { decryptPayload } from '@/lib/encryption';
 
 export type ActionState = {
   error?: string;
@@ -293,30 +298,109 @@ export async function createProjectAction(_: ActionState, formData: FormData): P
   redirect('/onboarding');
 }
 
-export async function saveGithubConnectionAction(_: ActionState, formData: FormData): Promise<ActionState> {
+export async function saveRepositoryConnectionAction(_: ActionState, formData: FormData): Promise<ActionState> {
   const projectId = readString(formData, 'projectId');
-  const repositoryOwner = readString(formData, 'repositoryOwner');
+  const provider = readString(formData, 'provider').toUpperCase() as RepositoryProvider;
+  const externalId = readString(formData, 'externalId');
+  const owner = readString(formData, 'owner');
+  const namespace = readString(formData, 'namespace');
   const repositoryName = readString(formData, 'repositoryName');
+  const fullName = readString(formData, 'fullName');
+  const repositoryUrl = readString(formData, 'repositoryUrl');
   const defaultBranch = readString(formData, 'defaultBranch') || 'main';
-  const installationId = readString(formData, 'installationId');
+  const gitlabProjectToken = readString(formData, 'gitlabProjectToken');
 
-  if (!projectId || !repositoryOwner || !repositoryName) {
-    logServerError('github.connected.failed', 'validation_error', { status: 'failed', projectId });
-    return { error: 'Repository owner and name are required.' };
+  if (!projectId || !provider || !externalId || !owner || !repositoryName || !fullName || !repositoryUrl) {
+    logServerError('repository.connected.failed', 'validation_error', { status: 'failed', projectId, provider });
+    return { error: 'Provider, repository, and branch details are required.' };
   }
 
-  const saved = await saveGithubConnection({
+  const cookieStore = await cookies();
+  let installationId: string | undefined;
+  let providerUser: string | undefined;
+  let webhookId: string | undefined;
+  let webhookStatus: 'configured' | 'failed' = 'failed';
+  let webhookUrl: string | undefined;
+  let webhookLastError: string | undefined;
+
+  if (provider === 'GITHUB') {
+    const githubSession = decodeCookieValue<GitHubInstallationCookie>(cookieStore.get(REPOSITORY_FLOW_COOKIES.githubInstallation)?.value);
+    if (!githubSession || githubSession.projectId !== projectId) {
+      logServerError('repository.connected.failed', 'validation_error', { status: 'failed', projectId, provider });
+      return { error: 'Connect GitHub before selecting a repository.' };
+    }
+
+    installationId = githubSession.installationId;
+    const callbackUrl = absoluteUrl('/api/repositories/webhooks/github');
+    const webhook = await reconcileGitHubWebhook(githubSession.installationId, owner, repositoryName, callbackUrl);
+    webhookId = webhook.id;
+    webhookStatus = webhook.status;
+    webhookUrl = webhook.url;
+    webhookLastError = webhook.error;
+  }
+
+  if (provider === 'GITLAB') {
+    const gitlabSession = decodeCookieValue<GitLabOAuthCookie>(cookieStore.get(REPOSITORY_FLOW_COOKIES.gitlabOAuth)?.value);
+    if (!gitlabSession || gitlabSession.projectId !== projectId) {
+      logServerError('repository.connected.failed', 'validation_error', { status: 'failed', projectId, provider });
+      return { error: 'Connect GitLab before selecting a project.' };
+    }
+
+    providerUser = gitlabSession.userName;
+    const existingSecret = await prisma.encryptedSecret.findFirst({
+      where: {
+        scope: 'PROJECT',
+        projectId,
+        key: 'repository.gitlab',
+      },
+    });
+    const storedSecret = existingSecret ? decryptPayload<Record<string, string>>(existingSecret) : null;
+    const projectToken = gitlabProjectToken || storedSecret?.projectToken;
+
+    if (!projectToken) {
+      logServerError('repository.connected.failed', 'validation_error', { status: 'failed', projectId, provider });
+      return { error: 'A GitLab project or group token with webhook permissions is required.' };
+    }
+
+    await saveRepositorySecret({
+      projectId,
+      provider: 'GITLAB',
+      secretJson: gitlabProjectToken ? { projectToken: gitlabProjectToken } : undefined,
+    });
+
+    const callbackUrl = absoluteUrl('/api/repositories/webhooks/gitlab');
+    const webhook = await reconcileGitLabWebhook(projectToken, externalId, callbackUrl);
+    webhookId = webhook.id;
+    webhookStatus = webhook.status;
+    webhookUrl = webhook.url;
+    webhookLastError = webhook.error;
+  }
+
+  const saved = await saveRepositoryConnection({
     projectId,
-    repositoryOwner,
+    provider,
+    externalId,
+    owner,
+    namespace: namespace || undefined,
     repositoryName,
+    fullName,
+    repositoryUrl,
     defaultBranch,
-    installationId: installationId || undefined,
+    installationId,
+    providerUser,
+    webhookId,
+    webhookStatus,
+    webhookUrl,
+    webhookLastError,
+    lastSyncedAt: new Date().toISOString(),
   });
 
-  logServerEvent('github.connected', {
+  logServerEvent('repository.connected', {
     status: 'success',
     projectId,
-    githubConnectionId: saved.githubConnectionId,
+    provider,
+    repositoryConnectionId: saved.repositoryConnectionId,
+    webhookStatus,
   });
   revalidateAppData();
 

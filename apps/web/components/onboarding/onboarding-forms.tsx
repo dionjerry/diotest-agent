@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useMemo, useState } from 'react';
+import { useActionState, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -10,7 +10,7 @@ import {
   createOrganizationAction,
   createProjectAction,
   finalizeOnboardingAction,
-  saveGithubConnectionAction,
+  saveRepositoryConnectionAction,
 } from '@/app/actions';
 import { IntegrationModal, type IntegrationProvider } from '@/components/integrations/integration-modal';
 import { FormMessage } from '@/components/forms/form-message';
@@ -294,89 +294,342 @@ export function SetupStepForm({
   );
 }
 
-export function GithubStepForm({
+type RepositoryCandidate = {
+  provider: 'GITHUB' | 'GITLAB';
+  externalId: string;
+  owner: string;
+  namespace?: string;
+  repositoryName: string;
+  fullName: string;
+  repositoryUrl: string;
+  defaultBranch: string;
+  installationId?: string;
+  providerUser?: string;
+};
+
+type BranchCandidate = {
+  name: string;
+  isDefault: boolean;
+};
+
+function toRepositoryCandidate(connection: BootstrapResponse['repositoryConnection']): RepositoryCandidate | null {
+  if (!connection) return null;
+
+  return {
+    provider: connection.provider,
+    externalId: connection.externalId,
+    owner: connection.owner,
+    namespace: connection.namespace ?? undefined,
+    repositoryName: connection.repositoryName,
+    fullName: connection.fullName,
+    repositoryUrl: connection.repositoryUrl,
+    defaultBranch: connection.defaultBranch,
+    installationId: connection.installationId ?? undefined,
+    providerUser: connection.providerUser ?? undefined,
+  };
+}
+
+export function RepositoryStepForm({
   projectId,
-  repositoryOwner,
-  repositoryName,
+  existingConnection,
 }: {
   projectId: string;
-  repositoryOwner?: string;
-  repositoryName?: string;
+  existingConnection?: BootstrapResponse['repositoryConnection'];
 }) {
-  const [state, formAction] = useActionState(saveGithubConnectionAction, initialState);
+  const [state, formAction] = useActionState(saveRepositoryConnectionAction, initialState);
+  const existingCandidate = useMemo(() => toRepositoryCandidate(existingConnection ?? null), [existingConnection]);
+  const [provider, setProvider] = useState<'GITHUB' | 'GITLAB'>(existingCandidate?.provider ?? 'GITHUB');
+  const [repositories, setRepositories] = useState<RepositoryCandidate[]>(existingCandidate ? [existingCandidate] : []);
+  const [loadingRepositories, setLoadingRepositories] = useState(false);
+  const [repositoryError, setRepositoryError] = useState<string>();
+  const [selectedRepositoryId, setSelectedRepositoryId] = useState<string>(existingCandidate?.externalId ?? '');
+  const [branches, setBranches] = useState<BranchCandidate[]>(
+    existingCandidate ? [{ name: existingCandidate.defaultBranch, isDefault: true }] : [],
+  );
+  const [selectedBranch, setSelectedBranch] = useState(existingCandidate?.defaultBranch ?? 'main');
+  const [loadingBranches, setLoadingBranches] = useState(false);
+  const [branchError, setBranchError] = useState<string>();
+
+  const selectedRepository = useMemo(
+    () => repositories.find((repo) => repo.externalId === selectedRepositoryId) ?? existingCandidate ?? null,
+    [existingCandidate, repositories, selectedRepositoryId],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRepositories() {
+      setLoadingRepositories(true);
+      setRepositoryError(undefined);
+      try {
+        const response = await fetch(`/api/repositories/list?provider=${provider}&projectId=${projectId}`, {
+          cache: 'no-store',
+        });
+        const payload = (await response.json()) as {
+          ok: boolean;
+          message?: string;
+          repositories?: RepositoryCandidate[];
+        };
+
+        if (!response.ok || !payload.ok || !payload.repositories) {
+          throw new Error(payload.message ?? `Unable to load ${provider === 'GITHUB' ? 'GitHub' : 'GitLab'} repositories.`);
+        }
+
+        if (cancelled) return;
+        const available = payload.repositories;
+        setRepositories(
+          existingCandidate && existingCandidate.provider === provider
+            ? [existingCandidate, ...available.filter((repo) => repo.externalId !== existingCandidate.externalId)]
+            : available,
+        );
+        setSelectedRepositoryId((current) => {
+          if (current && available.some((repo) => repo.externalId === current)) return current;
+          if (existingCandidate?.provider === provider) return existingCandidate.externalId;
+          return available[0]?.externalId ?? '';
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setRepositories(existingCandidate?.provider === provider && existingCandidate ? [existingCandidate] : []);
+        setSelectedRepositoryId(existingCandidate?.provider === provider ? existingCandidate.externalId : '');
+        setRepositoryError(error instanceof Error ? error.message : 'Unable to load repositories.');
+      } finally {
+        if (!cancelled) setLoadingRepositories(false);
+      }
+    }
+
+    void loadRepositories();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [existingCandidate, projectId, provider]);
+
+  useEffect(() => {
+    if (!selectedRepository) {
+      setBranches([]);
+      setSelectedBranch('main');
+      return;
+    }
+
+    const repository = selectedRepository;
+    let cancelled = false;
+    async function loadBranches() {
+      setLoadingBranches(true);
+      setBranchError(undefined);
+
+      const params = new URLSearchParams({
+        provider,
+        projectId,
+        externalId: repository.externalId,
+        owner: repository.owner,
+        repositoryName: repository.repositoryName,
+        defaultBranch: repository.defaultBranch,
+      });
+
+      try {
+        const response = await fetch(`/api/repositories/branches?${params.toString()}`, {
+          cache: 'no-store',
+        });
+        const payload = (await response.json()) as {
+          ok: boolean;
+          message?: string;
+          branches?: BranchCandidate[];
+        };
+
+        if (!response.ok || !payload.ok || !payload.branches) {
+          throw new Error(payload.message ?? 'Unable to load branches.');
+        }
+
+        if (cancelled) return;
+        const availableBranches = payload.branches;
+        setBranches(availableBranches);
+        setSelectedBranch((current) =>
+          availableBranches.some((branch) => branch.name === current)
+            ? current
+            : availableBranches.find((branch) => branch.isDefault)?.name ?? availableBranches[0]?.name ?? repository.defaultBranch,
+        );
+      } catch (error) {
+        if (cancelled) return;
+        setBranches([{ name: repository.defaultBranch, isDefault: true }]);
+        setSelectedBranch(repository.defaultBranch);
+        setBranchError(error instanceof Error ? error.message : 'Unable to load branches.');
+      } finally {
+        if (!cancelled) setLoadingBranches(false);
+      }
+    }
+
+    void loadBranches();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, provider, selectedRepository]);
 
   return (
     <form action={formAction}>
       <input type="hidden" name="projectId" value={projectId} />
-      <input type="hidden" name="repositoryOwner" value={repositoryOwner ?? 'diotest-labs'} />
+      <input type="hidden" name="provider" value={provider} />
+      <input type="hidden" name="externalId" value={selectedRepository?.externalId ?? ''} />
+      <input type="hidden" name="owner" value={selectedRepository?.owner ?? ''} />
+      <input type="hidden" name="namespace" value={selectedRepository?.namespace ?? ''} />
+      <input type="hidden" name="repositoryName" value={selectedRepository?.repositoryName ?? ''} />
+      <input type="hidden" name="fullName" value={selectedRepository?.fullName ?? ''} />
+      <input type="hidden" name="repositoryUrl" value={selectedRepository?.repositoryUrl ?? ''} />
       <div className="space-y-5">
-        <div className="flex items-start justify-between gap-4">
-          <Input
-            name="repositorySearch"
-            placeholder="Search repositories..."
-            className="h-12 rounded-[4px] border-transparent bg-black/90 text-[#8c8f97] placeholder:text-[#565962]"
-          />
-          <div className="flex h-12 w-12 items-center justify-center rounded-[4px] border border-white/8 bg-[#202126] text-[#53dca4]">
-            ◈
-          </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {([
+            ['GITHUB', 'GitHub', 'GitHub App install, repository selection, and automatic webhook setup.'],
+            ['GITLAB', 'GitLab', 'GitLab OAuth plus a project/group token for webhook provisioning.'],
+          ] as const).map(([value, label, copy]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setProvider(value)}
+              className={`rounded-[8px] border px-5 py-4 text-left transition ${
+                provider === value ? 'border-[#2f6d55] bg-[#131a17]' : 'border-white/6 bg-[#17181d] hover:bg-[#1b1c21]'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-lg font-semibold text-white">{label}</div>
+                <div className={`rounded-[6px] px-3 py-1 text-xs font-semibold ${provider === value ? 'bg-[#123224] text-[#53dca4]' : 'bg-white/6 text-[#9ca0a8]'}`}>
+                  {provider === value ? 'Selected' : 'Use'}
+                </div>
+              </div>
+              <div className="mt-2 text-sm leading-6 text-[#7f828a]">{copy}</div>
+            </button>
+          ))}
         </div>
 
-        <div className="space-y-3">
-          <div className="grid gap-3">
-            {[
-              { owner: 'diotest-labs', name: 'core-engine', meta: 'Updated 2h ago • Public', selected: true },
-              { owner: 'diotest-labs', name: 'studio-ui', meta: 'Updated 5d ago • Private', selected: false },
-              { owner: 'diotest-labs', name: 'documentation', meta: 'Updated 12d ago • Public', selected: false },
-            ].map((repo) => (
-              <label
-                key={repo.name}
-                className={`flex cursor-pointer items-center justify-between rounded-[4px] border px-5 py-5 transition ${
-                  repo.selected ? 'border-[#2f6d55] bg-[#1e2123]' : 'border-transparent bg-transparent hover:bg-[#1a1b20]'
-                }`}
-              >
-                <div className="flex items-center gap-4">
-                  <input
-                    type="radio"
-                    name="repositoryName"
-                    value={repo.name}
-                    defaultChecked={repo.selected}
-                    className="sr-only"
-                  />
-                  <div className="text-white/60">⌘</div>
-                  <div>
-                    <div className="text-[1.05rem] font-semibold text-white">
-                      {repo.owner} / {repo.name}
-                    </div>
-                    <div className="text-sm text-[#72757d]">{repo.meta}</div>
-                  </div>
-                </div>
-                <div
-                  className={`rounded-[4px] px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] ${
-                    repo.selected ? 'bg-[#173c2e] text-[#79e6b7]' : 'bg-transparent text-[#c8cbd1]'
+        <div className="rounded-[8px] border border-white/6 bg-[#17181d] p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="text-lg font-semibold text-white">
+                {provider === 'GITHUB' ? 'Connect GitHub App' : 'Connect GitLab'}
+              </div>
+              <div className="mt-1 text-sm leading-6 text-[#7f828a]">
+                {provider === 'GITHUB'
+                  ? 'Install or authorize the DioTest GitHub App, then choose the repository DioTest should monitor.'
+                  : 'Authorize GitLab, then choose the project and provide a project/group token for webhook creation.'}
+              </div>
+            </div>
+            <a
+              href={`/api/repositories/${provider === 'GITHUB' ? 'github' : 'gitlab'}/connect?projectId=${encodeURIComponent(projectId)}&returnTo=${encodeURIComponent('/onboarding?stage=repository')}`}
+              className="inline-flex h-11 items-center justify-center rounded-[8px] bg-[#1f4d3d] px-5 text-sm font-semibold text-[#86d4af] transition hover:bg-[#245b47]"
+            >
+              {existingConnection?.provider === provider ? 'Reconnect' : `Connect ${provider === 'GITHUB' ? 'GitHub' : 'GitLab'}`}
+            </a>
+          </div>
+
+          <div className="mt-5 rounded-[8px] border border-white/6 bg-[#131419] px-4 py-3 text-sm text-[#a6a9b0]">
+            {loadingRepositories
+              ? `Loading ${provider === 'GITHUB' ? 'repositories' : 'projects'}...`
+              : repositoryError
+                ? repositoryError
+                : repositories.length
+                  ? `${repositories.length} ${provider === 'GITHUB' ? 'repositories' : 'projects'} available for selection.`
+                  : `No ${provider === 'GITHUB' ? 'repositories' : 'projects'} available yet. Connect the provider first.`}
+          </div>
+
+          <div className="mt-5 grid gap-3">
+            {repositories.map((repo) => {
+              const selected = repo.externalId === selectedRepositoryId;
+              return (
+                <label
+                  key={`${repo.provider}:${repo.externalId}`}
+                  className={`flex cursor-pointer items-center justify-between rounded-[8px] border px-5 py-5 transition ${
+                    selected ? 'border-[#2f6d55] bg-[#1e2123]' : 'border-transparent bg-transparent hover:bg-[#1a1b20]'
                   }`}
                 >
-                  {repo.selected ? 'Selected' : 'Connect'}
-                </div>
-              </label>
-            ))}
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="radio"
+                      name="repositoryPicker"
+                      value={repo.externalId}
+                      checked={selected}
+                      onChange={() => setSelectedRepositoryId(repo.externalId)}
+                      className="sr-only"
+                    />
+                    <div className="text-white/60">{provider === 'GITHUB' ? '⌘' : '◆'}</div>
+                    <div>
+                      <div className="text-[1.05rem] font-semibold text-white">{repo.fullName}</div>
+                      <div className="text-sm text-[#72757d]">
+                        {repo.repositoryUrl.replace('https://', '').replace('http://', '')} • default branch {repo.defaultBranch}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`rounded-[4px] px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] ${selected ? 'bg-[#173c2e] text-[#79e6b7]' : 'bg-transparent text-[#c8cbd1]'}`}>
+                    {selected ? 'Selected' : 'Choose'}
+                  </div>
+                </label>
+              );
+            })}
           </div>
         </div>
 
-        <Input type="hidden" name="defaultBranch" defaultValue="main" />
-        <Input type="hidden" name="installationId" defaultValue="" />
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8f929b]">Default branch</div>
+            <select
+              name="defaultBranch"
+              value={selectedBranch}
+              onChange={(event) => setSelectedBranch(event.target.value)}
+              className="h-12 w-full rounded-[8px] border border-white/6 bg-[#131419] px-4 text-sm text-white outline-none"
+            >
+              {branches.map((branch) => (
+                <option key={branch.name} value={branch.name}>
+                  {branch.name}
+                  {branch.isDefault ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+            <div className="mt-2 text-xs text-[#72757d]">
+              {loadingBranches ? 'Loading live branches...' : branchError ? branchError : 'Fetched from the selected provider.'}
+            </div>
+          </div>
+          {provider === 'GITLAB' ? (
+            <div>
+              <div className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8f929b]">GitLab project/group token</div>
+              <Input
+                name="gitlabProjectToken"
+                type="password"
+                placeholder="Required for webhook provisioning"
+                className="h-12 rounded-[8px] border-white/6 bg-[#131419]"
+              />
+              <div className="mt-2 text-xs leading-5 text-[#72757d]">
+                Leave blank to keep the stored token. DioTest stores this encrypted and uses it only for project webhook management.
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-[8px] border border-white/6 bg-[#17181d] px-5 py-4">
+              <div className="text-sm font-semibold text-white">GitHub App installation</div>
+              <div className="mt-2 text-sm leading-6 text-[#7f828a]">
+                Repository access and webhook creation happen through the installed GitHub App. No personal access token is required.
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="rounded-[4px] border border-white/6 bg-[#17181d] px-5 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-lg font-semibold text-white">Automatic Webhook Configuration</div>
               <div className="mt-1 text-sm leading-7 text-[#7f828a]">
-                Allow DioTest to create webhooks and comment on Pull Requests for real-time status updates.
+                DioTest will reconcile the provider webhook as part of Save & Connect and store its health for onboarding and settings.
               </div>
             </div>
             <div className="h-6 w-11 rounded-full bg-[#53dca4]/20 p-1">
               <div className="ml-auto h-4 w-4 rounded-full bg-[#53dca4]" />
             </div>
           </div>
+          {existingConnection ? (
+            <div className="mt-4 rounded-[6px] border border-white/6 bg-[#131419] px-4 py-3 text-sm text-[#aeb1b8]">
+              Current connection: <span className="font-semibold text-white">{existingConnection.fullName}</span> • webhook{' '}
+              <span className={existingConnection.webhookStatus === 'configured' ? 'text-[#53dca4]' : 'text-[#ffb24a]'}>
+                {existingConnection.webhookStatus}
+              </span>
+              {existingConnection.webhookLastError ? ` • ${existingConnection.webhookLastError}` : ''}
+            </div>
+          ) : null}
         </div>
 
         <FormMessage>{state.error}</FormMessage>

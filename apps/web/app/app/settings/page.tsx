@@ -34,12 +34,13 @@ export default async function SettingsPage() {
     ['MAX_RETRY_ATTEMPTS', '5'],
   ];
   const activeIntegrations = [
-    bootstrap.githubConnection
+    settings.repositoryConnection
       ? {
-          name: 'GitHub',
-          subtitle: `Connected as ${bootstrap.githubConnection.repositoryOwner}/${bootstrap.githubConnection.repositoryName}`,
-          state: 'CONNECTED',
-          action: 'Manage',
+          name: settings.repositoryConnection.provider === 'GITHUB' ? 'GitHub' : 'GitLab',
+          subtitle: `Connected as ${settings.repositoryConnection.fullName}`,
+          state: settings.repositoryConnection.webhookStatus === 'configured' ? 'CONNECTED' : 'WEBHOOK FAILED',
+          action: 'Reconnect',
+          href: '/onboarding?stage=repository',
         }
       : null,
     ...settings.integrations.map((integration) => ({
@@ -49,8 +50,9 @@ export default async function SettingsPage() {
         : `Missing ${integration.health.missing.join(', ') || 'credentials'}`,
       state: integration.health.isConfigured ? 'READY' : 'INCOMPLETE',
       action: 'Configure',
+      href: '/onboarding?stage=integrations',
     })),
-  ].filter((item): item is { name: string; subtitle: string; state: string; action: string } => item !== null);
+  ].filter((item): item is { name: string; subtitle: string; state: string; action: string; href: string } => item !== null);
 
   return (
     <main className="min-h-screen bg-[#0a0b0e] text-white">
@@ -137,10 +139,12 @@ export default async function SettingsPage() {
                 <section>
                   <div className="mb-4 flex items-center justify-between">
                     <h2 className="text-lg font-semibold text-white">Active Integrations</h2>
-                    <span className="text-sm text-[#53dca4]">{settings.integrations.length} configured</span>
+                    <span className="text-sm text-[#53dca4]">
+                      {settings.integrations.length + (settings.repositoryConnection ? 1 : 0)} configured
+                    </span>
                   </div>
                   <div className="space-y-3">
-                    {activeIntegrations.map(({ name, subtitle, state, action }) => (
+                    {activeIntegrations.map(({ name, subtitle, state, action, href }) => (
                       <div key={name} className="flex items-center justify-between rounded-[4px] border border-white/6 bg-[#17181d] px-5 py-4">
                         <div>
                           <div className="font-medium text-white">{name}</div>
@@ -148,7 +152,9 @@ export default async function SettingsPage() {
                         </div>
                         <div className="flex items-center gap-3">
                           <span className={`rounded-[3px] px-3 py-1 text-[11px] font-semibold ${state === 'READY' || state === 'CONNECTED' ? 'bg-[#1f2c25] text-[#53dca4]' : 'bg-[#3c2f17] text-[#ffb24a]'}`}>{state}</span>
-                          <button className="rounded-[3px] bg-[#27292f] px-3 py-1.5 text-xs text-[#c9cacf]">{action}</button>
+                          <Link href={href} className="rounded-[3px] bg-[#27292f] px-3 py-1.5 text-xs text-[#c9cacf]">
+                            {action}
+                          </Link>
                         </div>
                       </div>
                     ))}
