@@ -18,12 +18,23 @@ const projectSchema = z.object({
   description: z.string().optional(),
 });
 
-const githubSchema = z.object({
+const repositoryConnectionSchema = z.object({
   projectId: z.string().min(1),
-  repositoryOwner: z.string().min(1),
+  provider: z.enum(['GITHUB', 'GITLAB']),
+  externalId: z.string().min(1),
+  owner: z.string().min(1),
+  namespace: z.string().optional(),
   repositoryName: z.string().min(1),
+  fullName: z.string().min(1),
+  repositoryUrl: z.string().min(1),
   defaultBranch: z.string().min(1),
   installationId: z.string().optional(),
+  providerUser: z.string().optional(),
+  webhookId: z.string().optional(),
+  webhookStatus: z.string().optional(),
+  webhookUrl: z.string().optional(),
+  webhookLastError: z.string().optional(),
+  lastSyncedAt: z.string().datetime().optional(),
 });
 
 const integrationSchema = z.object({
@@ -54,7 +65,7 @@ export async function registerInternalRoutes(app: FastifyInstance) {
             projects: {
               orderBy: { createdAt: 'asc' },
               include: {
-                githubConnection: true,
+                repositoryConnection: true,
                 integrations: true,
                 encryptedSecrets: {
                   select: {
@@ -79,7 +90,7 @@ export async function registerInternalRoutes(app: FastifyInstance) {
       return {
         organization: null,
         project: null,
-        githubConnection: null,
+        repositoryConnection: null,
         integrations: [],
       };
     }
@@ -101,7 +112,7 @@ export async function registerInternalRoutes(app: FastifyInstance) {
       projectId: project?.id,
       projectCount: membership.organization.projects.length,
       integrationCount: project?.integrations.length ?? 0,
-      hasGithubConnection: Boolean(project?.githubConnection),
+      hasRepositoryConnection: Boolean(project?.repositoryConnection),
       durationMs,
       slow: durationMs > 500,
     });
@@ -120,13 +131,24 @@ export async function registerInternalRoutes(app: FastifyInstance) {
             description: project.description,
           }
         : null,
-      githubConnection: project?.githubConnection
+      repositoryConnection: project?.repositoryConnection
         ? {
-            id: project.githubConnection.id,
-            repositoryOwner: project.githubConnection.repositoryOwner,
-            repositoryName: project.githubConnection.repositoryName,
-            defaultBranch: project.githubConnection.defaultBranch,
-            webhookStatus: project.githubConnection.webhookStatus,
+            id: project.repositoryConnection.id,
+            provider: project.repositoryConnection.provider,
+            externalId: project.repositoryConnection.externalId,
+            owner: project.repositoryConnection.owner,
+            namespace: project.repositoryConnection.namespace,
+            repositoryName: project.repositoryConnection.repositoryName,
+            fullName: project.repositoryConnection.fullName,
+            repositoryUrl: project.repositoryConnection.repositoryUrl,
+            defaultBranch: project.repositoryConnection.defaultBranch,
+            installationId: project.repositoryConnection.installationId,
+            providerUser: project.repositoryConnection.providerUser,
+            webhookId: project.repositoryConnection.webhookId,
+            webhookStatus: project.repositoryConnection.webhookStatus,
+            webhookUrl: project.repositoryConnection.webhookUrl,
+            webhookLastError: project.repositoryConnection.webhookLastError,
+            lastSyncedAt: project.repositoryConnection.lastSyncedAt?.toISOString() ?? null,
           }
         : null,
       integrations: project?.integrations.map((integration) => ({
@@ -217,50 +239,76 @@ export async function registerInternalRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post('/github-connections', async (request, reply) => {
+  app.post('/repository-connections', async (request, reply) => {
     try {
-      const payload = githubSchema.parse(request.body);
+      const payload = repositoryConnectionSchema.parse(request.body);
 
-      const githubConnection = await prisma.githubConnection.upsert({
+      const repositoryConnection = await prisma.repositoryConnection.upsert({
         where: { projectId: payload.projectId },
         create: {
           projectId: payload.projectId,
-          repositoryOwner: payload.repositoryOwner,
+          provider: payload.provider,
+          externalId: payload.externalId,
+          owner: payload.owner,
+          namespace: payload.namespace,
           repositoryName: payload.repositoryName,
+          fullName: payload.fullName,
+          repositoryUrl: payload.repositoryUrl,
           defaultBranch: payload.defaultBranch,
           installationId: payload.installationId,
-          webhookStatus: 'configured',
+          providerUser: payload.providerUser,
+          webhookId: payload.webhookId,
+          webhookStatus: payload.webhookStatus ?? 'pending',
+          webhookUrl: payload.webhookUrl,
+          webhookLastError: payload.webhookLastError,
+          lastSyncedAt: payload.lastSyncedAt ? new Date(payload.lastSyncedAt) : undefined,
         },
         update: {
-          repositoryOwner: payload.repositoryOwner,
+          provider: payload.provider,
+          externalId: payload.externalId,
+          owner: payload.owner,
+          namespace: payload.namespace,
           repositoryName: payload.repositoryName,
+          fullName: payload.fullName,
+          repositoryUrl: payload.repositoryUrl,
           defaultBranch: payload.defaultBranch,
           installationId: payload.installationId,
-          webhookStatus: 'configured',
+          providerUser: payload.providerUser,
+          webhookId: payload.webhookId,
+          webhookStatus: payload.webhookStatus ?? 'pending',
+          webhookUrl: payload.webhookUrl,
+          webhookLastError: payload.webhookLastError,
+          lastSyncedAt: payload.lastSyncedAt ? new Date(payload.lastSyncedAt) : undefined,
         },
       });
 
-      logEvent(request.log, 'github.connected', {
+      logEvent(request.log, 'repository.connected', {
         requestId: request.id,
         projectId: payload.projectId,
         status: 'success',
-        githubConnectionId: githubConnection.id,
+        repositoryConnectionId: repositoryConnection.id,
+        provider: payload.provider,
       });
-      logDebug(request.log, 'github.connected.debug', {
+      logDebug(request.log, 'repository.connected.debug', {
         requestId: request.id,
         projectId: payload.projectId,
-        githubConnectionId: githubConnection.id,
-        repositoryOwner: payload.repositoryOwner,
+        repositoryConnectionId: repositoryConnection.id,
+        provider: payload.provider,
+        externalId: payload.externalId,
+        owner: payload.owner,
+        namespace: payload.namespace,
         repositoryName: payload.repositoryName,
+        fullName: payload.fullName,
         defaultBranch: payload.defaultBranch,
         hasInstallationId: Boolean(payload.installationId),
+        webhookStatus: payload.webhookStatus ?? 'pending',
         status: 'success',
       });
 
       reply.code(201);
-      return { githubConnectionId: githubConnection.id };
+      return { repositoryConnectionId: repositoryConnection.id };
     } catch (error) {
-      logError(request.log, 'github.connect.failed', classifyError(error), { requestId: request.id, status: 'failed' }, error);
+      logError(request.log, 'repository.connect.failed', classifyError(error), { requestId: request.id, status: 'failed' }, error);
       throw error;
     }
   });
