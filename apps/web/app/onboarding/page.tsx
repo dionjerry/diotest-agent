@@ -3,9 +3,9 @@ import Link from 'next/link';
 import {
   ExtensionSetupStep,
   FinalReviewStep,
-  GithubStepForm,
   OrganizationStepForm,
   ProjectStepForm,
+  RepositoryStepForm,
   SetupStepForm,
 } from '@/components/onboarding/onboarding-forms';
 import { BackendUnavailable } from '@/components/system/backend-unavailable';
@@ -43,8 +43,8 @@ const stageMeta: Record<
     description: 'Link your workspace tools to enable automated reporting and ticket tracking.',
   },
   repository: {
-    title: 'Connect GitHub Repository',
-    description: 'Select the repository you want DioTest to monitor for test execution.',
+    title: 'Connect Source Repository',
+    description: 'Connect GitHub or GitLab, select the repository or project, and let DioTest provision the webhook automatically.',
   },
   extension: {
     title: 'Install the DioTest Recorder',
@@ -67,15 +67,15 @@ const sidebarLabels: Array<[StageKey, string]> = [
   ['finalize', 'Review & Launch'],
 ];
 
-function resolveStage(stage: string | undefined, hasOrg: boolean, hasProject: boolean, hasGithub: boolean): StageKey {
+function resolveStage(stage: string | undefined, hasOrg: boolean, hasProject: boolean, hasRepositoryConnection: boolean): StageKey {
   if (!hasOrg) return 'organization';
   if (!hasProject) return 'project';
-  if (!stage) return hasGithub ? 'extension' : 'integrations';
+  if (!stage) return hasRepositoryConnection ? 'extension' : 'integrations';
 
   const requested = stage as StageKey;
-  if (!stageOrder.includes(requested)) return hasGithub ? 'extension' : 'integrations';
+  if (!stageOrder.includes(requested)) return hasRepositoryConnection ? 'extension' : 'integrations';
 
-  if (!hasGithub && (requested === 'extension' || requested === 'finalize')) {
+  if (!hasRepositoryConnection && (requested === 'extension' || requested === 'finalize')) {
     return 'repository';
   }
 
@@ -203,8 +203,8 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
 
   const hasOrg = Boolean(bootstrap.organization);
   const hasProject = Boolean(bootstrap.project);
-  const hasGithub = Boolean(bootstrap.githubConnection);
-  const activeStage = resolveStage(resolvedParams?.stage, hasOrg, hasProject, hasGithub);
+  const hasRepositoryConnection = Boolean(bootstrap.repositoryConnection);
+  const activeStage = resolveStage(resolvedParams?.stage, hasOrg, hasProject, hasRepositoryConnection);
   const meta = stageMeta[activeStage];
   const durationMs = Date.now() - startedAt;
   logServerEvent('onboarding.rendered', {
@@ -247,12 +247,9 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
                 />
               ) : null}
               {activeStage === 'repository' && bootstrap.project ? (
-                <GithubStepForm
+                <RepositoryStepForm
                   projectId={bootstrap.project.id}
-                  repositoryOwner={
-                    bootstrap.githubConnection?.repositoryOwner ?? bootstrap.organization?.slug ?? 'diotest-labs'
-                  }
-                  repositoryName={bootstrap.githubConnection?.repositoryName ?? 'core-engine'}
+                  existingConnection={bootstrap.repositoryConnection}
                 />
               ) : null}
               {activeStage === 'extension' ? <ExtensionSetupStep /> : null}
@@ -262,9 +259,7 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
                   projectName={bootstrap.project?.name ?? 'Alpha Core'}
                   projectId={bootstrap.project.id}
                   repository={
-                    bootstrap.githubConnection
-                      ? `${bootstrap.githubConnection.repositoryOwner}/${bootstrap.githubConnection.repositoryName}`
-                      : 'diotest/core'
+                    bootstrap.repositoryConnection ? bootstrap.repositoryConnection.fullName : 'Repository pending'
                   }
                   integrations={bootstrap.integrations.map((integration) => integration.type)}
                 />

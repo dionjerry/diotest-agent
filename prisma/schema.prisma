@@ -14,6 +14,11 @@ enum IntegrationType {
   GOOGLE_SHEETS
 }
 
+enum RepositoryProvider {
+  GITHUB
+  GITLAB
+}
+
 enum SettingScope {
   SYSTEM
   ORGANIZATION
@@ -116,6 +121,7 @@ model Project {
   updatedAt      DateTime              @updatedAt
   organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   githubConnection GithubConnection?
+  repositoryConnection RepositoryConnection?
   integrations   IntegrationConnection[]
   settings       SystemSetting[]
   encryptedSecrets EncryptedSecret[]
@@ -136,6 +142,29 @@ model GithubConnection {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model RepositoryConnection {
+  id                 String             @id @default(cuid())
+  projectId          String             @unique
+  provider           RepositoryProvider
+  externalId         String
+  owner              String
+  namespace          String?
+  repositoryName     String
+  fullName           String
+  repositoryUrl      String
+  defaultBranch      String
+  installationId     String?
+  providerUser       String?
+  webhookId          String?
+  webhookStatus      String             @default("pending")
+  webhookUrl         String?
+  webhookLastError   String?
+  lastSyncedAt       DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  project            Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model IntegrationConnection {

@@ -76,12 +76,23 @@ export type BootstrapResponse = {
     slug: string;
     description: string | null;
   } | null;
-  githubConnection: {
+  repositoryConnection: {
     id: string;
-    repositoryOwner: string;
+    provider: 'GITHUB' | 'GITLAB';
+    externalId: string;
+    owner: string;
+    namespace?: string | null;
     repositoryName: string;
+    fullName: string;
+    repositoryUrl: string;
     defaultBranch: string;
+    installationId?: string | null;
+    providerUser?: string | null;
+    webhookId?: string | null;
     webhookStatus: string;
+    webhookUrl?: string | null;
+    webhookLastError?: string | null;
+    lastSyncedAt?: string | null;
   } | null;
   integrations: Array<{
     id: string;
@@ -114,6 +125,7 @@ export type SettingsResponse = {
   };
   systemSettings: Record<string, unknown>;
   projectSettings: Record<string, unknown>;
+  repositoryConnection: BootstrapResponse['repositoryConnection'];
   integrations: Array<{
     id: string;
     type: string;
@@ -159,14 +171,25 @@ export function createProject(payload: {
   });
 }
 
-export function saveGithubConnection(payload: {
+export function saveRepositoryConnection(payload: {
   projectId: string;
-  repositoryOwner: string;
+  provider: 'GITHUB' | 'GITLAB';
+  externalId: string;
+  owner: string;
+  namespace?: string;
   repositoryName: string;
+  fullName: string;
+  repositoryUrl: string;
   defaultBranch: string;
   installationId?: string;
+  providerUser?: string;
+  webhookId?: string;
+  webhookStatus?: string;
+  webhookUrl?: string;
+  webhookLastError?: string;
+  lastSyncedAt?: string;
 }) {
-  return request<{ githubConnectionId: string }>('/github-connections', {
+  return request<{ repositoryConnectionId: string }>('/repository-connections', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -244,6 +267,17 @@ export function saveIntegrationSecret(payload: {
   secretJson: Record<string, unknown>;
 }) {
   return request<{ ok: true }>('/settings/integrations/secret', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function saveRepositorySecret(payload: {
+  projectId: string;
+  provider: 'GITLAB';
+  secretJson?: Record<string, unknown>;
+}) {
+  return request<{ ok: true }>('/settings/repositories/secret', {
     method: 'POST',
     body: JSON.stringify(payload),
   });

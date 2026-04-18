@@ -43,7 +43,7 @@ export default async function AppHomePage() {
   const passRate = actionState.tasks.length ? Math.round((stableTasks / actionState.tasks.length) * 1000) / 10 : 98.2;
   const activityItems = [
     {
-      title: bootstrap.githubConnection ? `feat: ${bootstrap.githubConnection.repositoryName}` : 'feat: optimize-worker-pools',
+      title: bootstrap.repositoryConnection ? `feat: ${bootstrap.repositoryConnection.repositoryName}` : 'feat: optimize-worker-pools',
       author: 'alex_dev',
       ref: '#4202',
       risk: 'Critical',

@@ -6,7 +6,7 @@ Current scope:
 - health and readiness endpoints
 - onboarding persistence APIs
 - bootstrap payload for the web app
-- GitHub connection boundary persistence
+- provider-neutral repository connection persistence for GitHub and GitLab
 - system and integration settings persistence
 
 ## Endpoints
@@ -20,9 +20,10 @@ Internal:
 - `GET /bootstrap?userId=...`
 - `POST /organizations`
 - `POST /projects`
-- `POST /github-connections`
+- `POST /repository-connections`
 - `POST /integrations`
 - `POST /system-settings`
+- `POST /settings/repositories/secret`
 
 Internal routes require the `x-internal-api-key` header.
 
@@ -36,6 +37,15 @@ Copy the repo-root `.env.example` to `.env` and fill in:
 - `INTERNAL_API_KEY`
 - `SETTINGS_ENCRYPTION_KEY`
 - `DEBUG_BACKEND`
+
+For repository onboarding flows, also configure:
+- `GITHUB_APP_ID`
+- `GITHUB_APP_NAME`
+- `GITHUB_APP_PRIVATE_KEY`
+- `GITHUB_WEBHOOK_SECRET`
+- `GITLAB_BASE_URL`
+- `GITLAB_CLIENT_ID`
+- `GITLAB_CLIENT_SECRET`
 
 `DEBUG_BACKEND=true` enables extra structured debug logs for request lifecycle, provider failures, and save/update flows. It is opt-in and intended for local troubleshooting.
 

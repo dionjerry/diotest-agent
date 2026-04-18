@@ -46,6 +46,12 @@ const integrationSecretSchema = z.object({
   secretJson: z.record(z.string(), z.unknown()),
 });
 
+const repositorySecretSchema = z.object({
+  projectId: z.string().min(1),
+  provider: z.enum(['GITLAB']),
+  secretJson: z.record(z.string(), z.unknown()).optional(),
+});
+
 async function getSecret(scope: 'SYSTEM' | 'ORGANIZATION' | 'PROJECT', key: string, organizationId?: string, projectId?: string) {
   return prisma.encryptedSecret.findFirst({
     where: {
@@ -109,7 +115,7 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
     const startedAt = Date.now();
     const query = contextSchema.parse(request.query);
 
-    const [systemSettings, projectSettings, integrations, oauthSecret, aiSecret] = await Promise.all([
+    const [systemSettings, projectSettings, integrations, repositoryConnection, oauthSecret, aiSecret] = await Promise.all([
       prisma.systemSetting.findMany({
         where: {
           scope: query.organizationId ? 'ORGANIZATION' : 'SYSTEM',
@@ -122,6 +128,9 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
       query.projectId
         ? prisma.integrationConnection.findMany({ where: { projectId: query.projectId } })
         : Promise.resolve([]),
+      query.projectId
+        ? prisma.repositoryConnection.findUnique({ where: { projectId: query.projectId } })
+        : Promise.resolve(null),
       getSecret('SYSTEM', 'oauth.google'),
       getSecret(query.projectId ? 'PROJECT' : query.organizationId ? 'ORGANIZATION' : 'SYSTEM', query.projectId ? 'ai.project' : 'ai.org', query.organizationId, query.projectId),
     ]);
@@ -173,6 +182,7 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
       systemSettingCount: systemSettings.length,
       projectSettingCount: projectSettings.length,
       integrationCount: integrationSecrets.length,
+      hasRepositoryConnection: Boolean(repositoryConnection),
       hasOAuthSecret: Boolean(oauthSecret),
       hasAiSecret: Boolean(aiSecret),
       durationMs,
@@ -185,6 +195,26 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
       ai: toAiSettingsView(ai),
       systemSettings: Object.fromEntries(systemSettings.map((item: SystemSetting) => [item.key, item.value])),
       projectSettings: Object.fromEntries(projectSettings.map((item: SystemSetting) => [item.key, item.value])),
+      repositoryConnection: repositoryConnection
+        ? {
+            id: repositoryConnection.id,
+            provider: repositoryConnection.provider,
+            externalId: repositoryConnection.externalId,
+            owner: repositoryConnection.owner,
+            namespace: repositoryConnection.namespace,
+            repositoryName: repositoryConnection.repositoryName,
+            fullName: repositoryConnection.fullName,
+            repositoryUrl: repositoryConnection.repositoryUrl,
+            defaultBranch: repositoryConnection.defaultBranch,
+            installationId: repositoryConnection.installationId,
+            providerUser: repositoryConnection.providerUser,
+            webhookId: repositoryConnection.webhookId,
+            webhookStatus: repositoryConnection.webhookStatus,
+            webhookUrl: repositoryConnection.webhookUrl,
+            webhookLastError: repositoryConnection.webhookLastError,
+            lastSyncedAt: repositoryConnection.lastSyncedAt?.toISOString() ?? null,
+          }
+        : null,
       integrations: integrationSecrets,
     };
   });
@@ -295,6 +325,41 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
       return { ok: true };
     } catch (error) {
       logError(request.log, 'integration.secret.save.failed', classifyError(error), { requestId: request.id, status: 'failed' }, error);
+      throw error;
+    }
+  });
+
+  app.post('/settings/repositories/secret', async (request, reply) => {
+    try {
+      const payload = repositorySecretSchema.parse(request.body);
+      const key = `repository.${payload.provider.toLowerCase()}`;
+      const existingSecret = await getSecret('PROJECT', key, undefined, payload.projectId);
+      const existingConfig = existingSecret ? decryptPayload<Record<string, unknown>>(existingSecret) : {};
+      const mergedSecret = {
+        ...existingConfig,
+        ...(payload.secretJson ?? {}),
+      };
+
+      await upsertSecret('PROJECT', key, mergedSecret, undefined, payload.projectId);
+
+      logEvent(request.log, 'repository.secret.saved', {
+        requestId: request.id,
+        projectId: payload.projectId,
+        provider: payload.provider,
+        status: 'success',
+      });
+      logDebug(request.log, 'repository.secret.saved.debug', {
+        requestId: request.id,
+        projectId: payload.projectId,
+        provider: payload.provider,
+        secretKeys: Object.keys(mergedSecret).sort(),
+        status: 'success',
+      });
+
+      reply.code(201);
+      return { ok: true };
+    } catch (error) {
+      logError(request.log, 'repository.secret.save.failed', classifyError(error), { requestId: request.id, status: 'failed' }, error);
       throw error;
     }
   });
