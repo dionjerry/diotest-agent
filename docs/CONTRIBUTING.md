@@ -17,7 +17,7 @@
 
 1. Merge validated feature PRs into `develop`
 2. Promote to production by merging `develop` into `main`
-3. Create a release tag on `main` (for example: `v0.1.0`)
+3. Create a release tag on `main` (for example: `v1.0.1`)
 
 ## PR Checklist
 
