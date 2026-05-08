@@ -67,8 +67,8 @@ export function SignupForm({ googleEnabled, googleSource }: { googleEnabled: boo
 
       <div className="mt-8 text-center text-[11px] leading-5 text-[#585a62]">
         By clicking continue, you agree to our{' '}
-        <Link href="#" className="text-[#8f9097] underline underline-offset-2">Terms of Service</Link> and{' '}
-        <Link href="#" className="text-[#8f9097] underline underline-offset-2">Privacy Policy</Link>
+        <Link href="/terms" className="text-[#8f9097] underline underline-offset-2">Terms of Service</Link> and{' '}
+        <Link href="/privacy" className="text-[#8f9097] underline underline-offset-2">Privacy Policy</Link>
       </div>
     </div>
   );

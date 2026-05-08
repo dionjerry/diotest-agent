@@ -45,8 +45,8 @@ export function AuthShell({
                 </div>
                 <div className="mt-auto flex flex-wrap gap-6 pt-12 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#63646b]">
                   <span>© 2024 DioTest Labs</span>
-                  <span>Documentation</span>
-                  <span>Support</span>
+                  <Link href="/docs/concepts">Documentation</Link>
+                  <Link href="/help/setup">Support</Link>
                 </div>
               </>
             ) : (

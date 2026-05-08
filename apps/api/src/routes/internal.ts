@@ -3,7 +3,15 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { prisma } from '../db.js';
+import { isPrismaUniqueConstraintError } from '../lib/errors.js';
 import { classifyError, logDebug, logError, logEvent } from '../lib/logging.js';
+
+const onboardingProgressSchema = z.object({
+  lastVisitedStage: z.enum(['organization', 'project', 'integrations', 'repository', 'extension', 'finalize']).optional(),
+  integrationsSkipped: z.boolean().optional(),
+  repositorySkipped: z.boolean().optional(),
+  extensionSkipped: z.boolean().optional(),
+});
 
 const organizationSchema = z.object({
   userId: z.string().min(1),
@@ -18,12 +26,23 @@ const projectSchema = z.object({
   description: z.string().optional(),
 });
 
-const githubSchema = z.object({
+const repositoryConnectionSchema = z.object({
   projectId: z.string().min(1),
-  repositoryOwner: z.string().min(1),
+  provider: z.enum(['GITHUB', 'GITLAB']),
+  externalId: z.string().min(1),
+  owner: z.string().min(1),
+  namespace: z.string().optional(),
   repositoryName: z.string().min(1),
+  fullName: z.string().min(1),
+  repositoryUrl: z.string().min(1),
   defaultBranch: z.string().min(1),
   installationId: z.string().optional(),
+  providerUser: z.string().optional(),
+  webhookId: z.string().optional(),
+  webhookStatus: z.string().optional(),
+  webhookUrl: z.string().optional(),
+  webhookLastError: z.string().optional(),
+  lastSyncedAt: z.string().datetime().optional(),
 });
 
 const integrationSchema = z.object({
@@ -54,7 +73,7 @@ export async function registerInternalRoutes(app: FastifyInstance) {
             projects: {
               orderBy: { createdAt: 'asc' },
               include: {
-                githubConnection: true,
+                repositoryConnection: true,
                 integrations: true,
                 encryptedSecrets: {
                   select: {
@@ -79,11 +98,27 @@ export async function registerInternalRoutes(app: FastifyInstance) {
       return {
         organization: null,
         project: null,
-        githubConnection: null,
+        repositoryConnection: null,
         integrations: [],
+        onboardingComplete: false,
+        onboardingProgress: null,
       };
     }
     const project = membership.organization.projects[0] ?? null;
+    const projectSettings = project
+      ? await prisma.systemSetting.findMany({
+          where: {
+            scope: 'PROJECT',
+            projectId: project.id,
+            key: { in: ['onboarding_complete', 'onboarding_progress'] },
+          },
+        })
+      : [];
+    const onboardingComplete = projectSettings.some((setting) => setting.key === 'onboarding_complete');
+    const onboardingProgressSetting = projectSettings.find((setting) => setting.key === 'onboarding_progress');
+    const onboardingProgress = onboardingProgressSetting
+      ? onboardingProgressSchema.safeParse(onboardingProgressSetting.value).data ?? null
+      : null;
     const durationMs = Date.now() - startedAt;
     logEvent(request.log, 'bootstrap.loaded', {
       requestId: request.id,
@@ -101,7 +136,7 @@ export async function registerInternalRoutes(app: FastifyInstance) {
       projectId: project?.id,
       projectCount: membership.organization.projects.length,
       integrationCount: project?.integrations.length ?? 0,
-      hasGithubConnection: Boolean(project?.githubConnection),
+      hasRepositoryConnection: Boolean(project?.repositoryConnection),
       durationMs,
       slow: durationMs > 500,
     });
@@ -120,13 +155,24 @@ export async function registerInternalRoutes(app: FastifyInstance) {
             description: project.description,
           }
         : null,
-      githubConnection: project?.githubConnection
+      repositoryConnection: project?.repositoryConnection
         ? {
-            id: project.githubConnection.id,
-            repositoryOwner: project.githubConnection.repositoryOwner,
-            repositoryName: project.githubConnection.repositoryName,
-            defaultBranch: project.githubConnection.defaultBranch,
-            webhookStatus: project.githubConnection.webhookStatus,
+            id: project.repositoryConnection.id,
+            provider: project.repositoryConnection.provider,
+            externalId: project.repositoryConnection.externalId,
+            owner: project.repositoryConnection.owner,
+            namespace: project.repositoryConnection.namespace,
+            repositoryName: project.repositoryConnection.repositoryName,
+            fullName: project.repositoryConnection.fullName,
+            repositoryUrl: project.repositoryConnection.repositoryUrl,
+            defaultBranch: project.repositoryConnection.defaultBranch,
+            installationId: project.repositoryConnection.installationId,
+            providerUser: project.repositoryConnection.providerUser,
+            webhookId: project.repositoryConnection.webhookId,
+            webhookStatus: project.repositoryConnection.webhookStatus,
+            webhookUrl: project.repositoryConnection.webhookUrl,
+            webhookLastError: project.repositoryConnection.webhookLastError,
+            lastSyncedAt: project.repositoryConnection.lastSyncedAt?.toISOString() ?? null,
           }
         : null,
       integrations: project?.integrations.map((integration) => ({
@@ -138,6 +184,8 @@ export async function registerInternalRoutes(app: FastifyInstance) {
           (secret) => secret.key === `integration.${integration.type.toLowerCase()}`,
         ),
       })) ?? [],
+      onboardingComplete,
+      onboardingProgress,
     };
   });
 
@@ -176,6 +224,19 @@ export async function registerInternalRoutes(app: FastifyInstance) {
       reply.code(201);
       return { organizationId: organization.id };
     } catch (error) {
+      if (isPrismaUniqueConstraintError(error, 'slug')) {
+        const message = 'Organization slug is already taken. Choose another one.';
+        logError(
+          request.log,
+          'organization.create.failed',
+          'validation_error',
+          { requestId: request.id, status: 'failed', statusCode: 409 },
+          error,
+        );
+        reply.code(409);
+        throw new Error(message);
+      }
+
       logError(request.log, 'organization.create.failed', classifyError(error), { requestId: request.id, status: 'failed' }, error);
       throw error;
     }
@@ -212,55 +273,94 @@ export async function registerInternalRoutes(app: FastifyInstance) {
       reply.code(201);
       return { projectId: project.id };
     } catch (error) {
+      if (isPrismaUniqueConstraintError(error, 'slug')) {
+        const message = 'Project slug is already taken. Choose another one.';
+        logError(
+          request.log,
+          'project.create.failed',
+          'validation_error',
+          { requestId: request.id, status: 'failed', statusCode: 409 },
+          error,
+        );
+        reply.code(409);
+        throw new Error(message);
+      }
+
       logError(request.log, 'project.create.failed', classifyError(error), { requestId: request.id, status: 'failed' }, error);
       throw error;
     }
   });
 
-  app.post('/github-connections', async (request, reply) => {
+  app.post('/repository-connections', async (request, reply) => {
     try {
-      const payload = githubSchema.parse(request.body);
+      const payload = repositoryConnectionSchema.parse(request.body);
 
-      const githubConnection = await prisma.githubConnection.upsert({
+      const repositoryConnection = await prisma.repositoryConnection.upsert({
         where: { projectId: payload.projectId },
         create: {
           projectId: payload.projectId,
-          repositoryOwner: payload.repositoryOwner,
+          provider: payload.provider,
+          externalId: payload.externalId,
+          owner: payload.owner,
+          namespace: payload.namespace,
           repositoryName: payload.repositoryName,
+          fullName: payload.fullName,
+          repositoryUrl: payload.repositoryUrl,
           defaultBranch: payload.defaultBranch,
           installationId: payload.installationId,
-          webhookStatus: 'configured',
+          providerUser: payload.providerUser,
+          webhookId: payload.webhookId,
+          webhookStatus: payload.webhookStatus ?? 'pending',
+          webhookUrl: payload.webhookUrl,
+          webhookLastError: payload.webhookLastError,
+          lastSyncedAt: payload.lastSyncedAt ? new Date(payload.lastSyncedAt) : undefined,
         },
         update: {
-          repositoryOwner: payload.repositoryOwner,
+          provider: payload.provider,
+          externalId: payload.externalId,
+          owner: payload.owner,
+          namespace: payload.namespace,
           repositoryName: payload.repositoryName,
+          fullName: payload.fullName,
+          repositoryUrl: payload.repositoryUrl,
           defaultBranch: payload.defaultBranch,
           installationId: payload.installationId,
-          webhookStatus: 'configured',
+          providerUser: payload.providerUser,
+          webhookId: payload.webhookId,
+          webhookStatus: payload.webhookStatus ?? 'pending',
+          webhookUrl: payload.webhookUrl,
+          webhookLastError: payload.webhookLastError,
+          lastSyncedAt: payload.lastSyncedAt ? new Date(payload.lastSyncedAt) : undefined,
         },
       });
 
-      logEvent(request.log, 'github.connected', {
+      logEvent(request.log, 'repository.connected', {
         requestId: request.id,
         projectId: payload.projectId,
         status: 'success',
-        githubConnectionId: githubConnection.id,
+        repositoryConnectionId: repositoryConnection.id,
+        provider: payload.provider,
       });
-      logDebug(request.log, 'github.connected.debug', {
+      logDebug(request.log, 'repository.connected.debug', {
         requestId: request.id,
         projectId: payload.projectId,
-        githubConnectionId: githubConnection.id,
-        repositoryOwner: payload.repositoryOwner,
+        repositoryConnectionId: repositoryConnection.id,
+        provider: payload.provider,
+        externalId: payload.externalId,
+        owner: payload.owner,
+        namespace: payload.namespace,
         repositoryName: payload.repositoryName,
+        fullName: payload.fullName,
         defaultBranch: payload.defaultBranch,
         hasInstallationId: Boolean(payload.installationId),
+        webhookStatus: payload.webhookStatus ?? 'pending',
         status: 'success',
       });
 
       reply.code(201);
-      return { githubConnectionId: githubConnection.id };
+      return { repositoryConnectionId: repositoryConnection.id };
     } catch (error) {
-      logError(request.log, 'github.connect.failed', classifyError(error), { requestId: request.id, status: 'failed' }, error);
+      logError(request.log, 'repository.connect.failed', classifyError(error), { requestId: request.id, status: 'failed' }, error);
       throw error;
     }
   });

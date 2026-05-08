@@ -1,27 +1,41 @@
+import { randomBytes } from 'node:crypto';
 import Link from 'next/link';
 
 import {
   ExtensionSetupStep,
   FinalReviewStep,
-  GithubStepForm,
   OrganizationStepForm,
   ProjectStepForm,
+  RepositoryStepForm,
+  type RepositoryRouteError,
   SetupStepForm,
 } from '@/components/onboarding/onboarding-forms';
 import { BackendUnavailable } from '@/components/system/backend-unavailable';
 import { requireOnboardingState } from '@/lib/guards';
-import { logServerEvent } from '@/lib/server-logger';
-import { slugify } from '@/lib/utils';
+import {
+  isOnboardingStage,
+  mergeOnboardingProgress,
+  onboardingStageOrder,
+  type OnboardingProgress,
+  type OnboardingStage,
+} from '@/lib/onboarding-state';
+import { decryptPayload, encryptPayload } from '@/lib/encryption';
+import { prisma } from '@/lib/prisma';
+import { logServerEvent, logServerDebug } from '@/lib/server-logger';
+import { absoluteUrl, slugify } from '@/lib/utils';
 
 type PageProps = {
   searchParams?: Promise<{
     stage?: string;
+    error?: string;
+    message?: string;
+    skip?: string;
   }>;
 };
 
-type StageKey = 'organization' | 'project' | 'integrations' | 'repository' | 'extension' | 'finalize';
+type StageKey = OnboardingStage;
 
-const stageOrder: StageKey[] = ['organization', 'project', 'integrations', 'repository', 'extension', 'finalize'];
+const stageOrder: StageKey[] = onboardingStageOrder;
 
 const stageMeta: Record<
   StageKey,
@@ -43,8 +57,8 @@ const stageMeta: Record<
     description: 'Link your workspace tools to enable automated reporting and ticket tracking.',
   },
   repository: {
-    title: 'Connect GitHub Repository',
-    description: 'Select the repository you want DioTest to monitor for test execution.',
+    title: 'Connect Source Repository',
+    description: 'Connect GitHub or GitLab, select the repository or project, and let DioTest provision the webhook automatically.',
   },
   extension: {
     title: 'Install the DioTest Recorder',
@@ -54,7 +68,7 @@ const stageMeta: Record<
   finalize: {
     title: 'Review Your Configuration',
     description:
-      'Confirm your environment and integration settings before initializing the testing cluster.',
+      'Review the saved project setup, rerun any step that still needs attention, then enter the workspace.',
   },
 };
 
@@ -67,19 +81,216 @@ const sidebarLabels: Array<[StageKey, string]> = [
   ['finalize', 'Review & Launch'],
 ];
 
-function resolveStage(stage: string | undefined, hasOrg: boolean, hasProject: boolean, hasGithub: boolean): StageKey {
-  if (!hasOrg) return 'organization';
-  if (!hasProject) return 'project';
-  if (!stage) return hasGithub ? 'extension' : 'integrations';
+async function getOrCreateExtensionApiKey(projectId: string): Promise<string> {
+  const existing = await prisma.encryptedSecret.findFirst({
+    where: {
+      scope: 'PROJECT',
+      projectId,
+      key: 'extension.apiKey',
+    },
+  });
 
-  const requested = stage as StageKey;
-  if (!stageOrder.includes(requested)) return hasGithub ? 'extension' : 'integrations';
-
-  if (!hasGithub && (requested === 'extension' || requested === 'finalize')) {
-    return 'repository';
+  if (existing) {
+    try {
+      const decrypted = decryptPayload<{ apiKey?: string }>({
+        cipherText: existing.cipherText,
+        iv: existing.iv,
+        tag: existing.tag,
+      });
+      if (decrypted.apiKey) return decrypted.apiKey;
+    } catch {
+      logServerDebug('extension.key.decode_failed', { projectId });
+    }
   }
 
-  return requested;
+  const token = randomBytes(24).toString('hex');
+  const encoded = Buffer.from(projectId).toString('base64url');
+  const apiKey = `dto_${encoded}_${token}`;
+
+  const encrypted = encryptPayload({ apiKey });
+  await prisma.encryptedSecret.deleteMany({
+    where: {
+      scope: 'PROJECT',
+      projectId,
+      key: 'extension.apiKey',
+    },
+  });
+
+  await prisma.encryptedSecret.create({
+    data: {
+      scope: 'PROJECT',
+      projectId,
+      key: 'extension.apiKey',
+      cipherText: encrypted.cipherText,
+      iv: encrypted.iv,
+      tag: encrypted.tag,
+      algorithm: encrypted.algorithm,
+    },
+  });
+
+  return apiKey;
+}
+
+function resolveRepositoryRouteError(errorCode: string | undefined, detail: string | undefined): RepositoryRouteError | null {
+  if (!errorCode) return null;
+
+  const safeDetail = detail?.trim() || undefined;
+
+  switch (errorCode) {
+    case 'missing-project':
+      return {
+        code: errorCode,
+        title: 'Repository setup could not start',
+        message: 'The repository connection flow is missing a project context.',
+        hint: 'Reload onboarding and reopen Step 4 from a saved project.',
+      };
+    case 'github-connect':
+      return {
+        code: errorCode,
+        provider: 'GITHUB',
+        title: 'GitHub connection could not start',
+        message:
+          safeDetail ??
+          'GitHub App setup is incomplete. DioTest could not build the GitHub install link for this project.',
+        hint: 'Check the GitHub App environment variables, then retry Connect GitHub.',
+      };
+    case 'github-callback':
+      return {
+        code: errorCode,
+        provider: 'GITHUB',
+        title: 'GitHub authorization did not complete',
+        message:
+          safeDetail ??
+          'GitHub returned without a valid installation or state for this project.',
+        hint: 'Retry the GitHub App flow and complete the installation in the same browser session.',
+      };
+    case 'gitlab-connect':
+      return {
+        code: errorCode,
+        provider: 'GITLAB',
+        title: 'GitLab connection could not start',
+        message:
+          safeDetail ??
+          'GitLab OAuth setup is incomplete. DioTest could not build the GitLab authorization link.',
+        hint: 'Check the GitLab OAuth environment variables, then retry Connect GitLab.',
+      };
+    case 'gitlab-callback':
+      return {
+        code: errorCode,
+        provider: 'GITLAB',
+        title: 'GitLab authorization did not complete',
+        message:
+          safeDetail ??
+          'GitLab returned without a valid code or state for this project.',
+        hint: 'Retry the GitLab OAuth flow and finish it in the same browser session.',
+      };
+    default:
+      return {
+        code: errorCode,
+        title: 'Repository connection failed',
+        message: safeDetail ?? 'DioTest could not finish the provider connection flow.',
+        hint: 'Retry the provider connection. If it fails again, review the server configuration.',
+      };
+  }
+}
+
+function isStageSkipped(stage: StageKey, progress: OnboardingProgress | null) {
+  if (!progress) return false;
+  if (stage === 'integrations') return Boolean(progress.integrationsSkipped);
+  if (stage === 'repository') return Boolean(progress.repositorySkipped);
+  if (stage === 'extension') return Boolean(progress.extensionSkipped);
+  return false;
+}
+
+function isStageCleared(stage: StageKey, progress: OnboardingProgress | null, hasRepositoryConnection: boolean) {
+  if (stage === 'repository') {
+    return hasRepositoryConnection || isStageSkipped(stage, progress);
+  }
+
+  if (stage === 'extension') {
+    return Boolean(progress?.lastVisitedStage === 'finalize' || progress?.extensionSkipped);
+  }
+
+  if (stage === 'integrations') {
+    return Boolean(
+      isStageSkipped(stage, progress)
+      || progress?.lastVisitedStage === 'repository'
+      || progress?.lastVisitedStage === 'extension'
+      || progress?.lastVisitedStage === 'finalize',
+    );
+  }
+
+  return false;
+}
+
+async function getExtensionConnectionInfo(projectId: string | undefined) {
+  if (!projectId) {
+    return { connected: false, connectedAt: null as string | null };
+  }
+
+  const setting = await prisma.systemSetting.findFirst({
+    where: {
+      scope: 'PROJECT',
+      projectId,
+      key: 'extension.connectedAt',
+    },
+    select: {
+      value: true,
+    },
+  });
+
+  return {
+    connected: Boolean(setting?.value),
+    connectedAt: typeof setting?.value === 'string' ? setting.value : null,
+  };
+}
+
+function getFirstIncompleteStage(
+  hasOrg: boolean,
+  hasProject: boolean,
+  hasRepositoryConnection: boolean,
+  progress: OnboardingProgress | null,
+  extensionConnected: boolean,
+): StageKey {
+  if (!hasOrg) return 'organization';
+  if (!hasProject) return 'project';
+
+  if (!isStageCleared('integrations', progress, hasRepositoryConnection)) return 'integrations';
+  if (!isStageCleared('repository', progress, hasRepositoryConnection)) return 'repository';
+  if (!extensionConnected && !isStageCleared('extension', progress, hasRepositoryConnection)) return 'extension';
+  return 'finalize';
+}
+
+function resolveStage(
+  stage: string | undefined,
+  hasOrg: boolean,
+  hasProject: boolean,
+  hasRepositoryConnection: boolean,
+  onboardingComplete: boolean,
+  progress: OnboardingProgress | null,
+  extensionConnected: boolean,
+): StageKey {
+  const requested = isOnboardingStage(stage) ? stage : undefined;
+
+  if (onboardingComplete) {
+    return requested ?? 'finalize';
+  }
+
+  const firstIncomplete = getFirstIncompleteStage(
+    hasOrg,
+    hasProject,
+    hasRepositoryConnection,
+    progress,
+    extensionConnected,
+  );
+
+  if (!requested) return firstIncomplete;
+  if (requested === 'organization' || requested === 'project') return firstIncomplete;
+
+  const requestedIndex = stageOrder.indexOf(requested);
+  const firstIncompleteIndex = stageOrder.indexOf(firstIncomplete);
+
+  return requestedIndex > firstIncompleteIndex ? firstIncomplete : requested;
 }
 
 function OnboardingHeader() {
@@ -102,7 +313,7 @@ function OnboardingSidebar({ activeStage }: { activeStage: StageKey }) {
   const activeIndex = stageOrder.indexOf(activeStage);
 
   return (
-    <aside className="flex flex-col border-r border-white/6 bg-[#0b0c0f] px-5 pb-8 pt-10">
+    <aside className="flex h-full flex-col border-r border-white/6 bg-[#0b0c0f] px-5 pb-8 pt-10 lg:sticky lg:top-0">
       <div className="mb-8">
         <h1 className="text-[1.7rem] font-bold tracking-[-0.05em] text-white">Setup Guide</h1>
         <p className="mt-2 text-sm text-[#8c8f97]">
@@ -114,14 +325,10 @@ function OnboardingSidebar({ activeStage }: { activeStage: StageKey }) {
         {sidebarLabels.map(([stage, label], index) => {
           const active = activeStage === stage;
           const complete = activeIndex > index;
-
-          return (
-            <div
-              key={stage}
-              className={`relative flex items-center gap-3 rounded-[6px] px-3 py-3 text-sm font-medium transition ${
-                active ? 'bg-white/5 text-white' : complete ? 'text-[#8fdaaf]' : 'text-[#7d8087]'
-              }`}
-            >
+          const href = `/onboarding?stage=${stage}`;
+          const isReopenable = activeStage === 'finalize' && index < activeIndex && stage !== 'organization' && stage !== 'project';
+          const content = (
+            <>
               {index < sidebarLabels.length - 1 ? (
                 <span className="absolute left-[22px] top-10 h-4 w-px bg-white/10" />
               ) : null}
@@ -137,20 +344,45 @@ function OnboardingSidebar({ activeStage }: { activeStage: StageKey }) {
                 {complete ? '✓' : index + 1}
               </span>
               <span>{label}</span>
+            </>
+          );
+
+          if (isReopenable) {
+            return (
+              <Link
+                key={stage}
+                href={href}
+                className={`relative flex items-center gap-3 rounded-[6px] px-3 py-3 text-sm font-medium transition hover:bg-white/5 hover:text-white ${
+                  active ? 'bg-white/5 text-white' : complete ? 'text-[#8fdaaf]' : 'text-[#7d8087]'
+                }`}
+              >
+                {content}
+              </Link>
+            );
+          }
+
+          return (
+            <div
+              key={stage}
+              className={`relative flex items-center gap-3 rounded-[6px] px-3 py-3 text-sm font-medium transition ${
+                active ? 'bg-white/5 text-white' : complete ? 'text-[#8fdaaf]' : 'text-[#7d8087]'
+              }`}
+            >
+              {content}
             </div>
           );
         })}
       </nav>
 
       <div className="mt-auto space-y-4 border-t border-white/6 pt-6 text-sm text-[#777a82]">
-        <div className="flex items-center gap-3">
+        <Link href="/docs/concepts" className="flex items-center gap-3 transition hover:text-white">
           <span>◫</span>
           <span>Documentation</span>
-        </div>
-        <div className="flex items-center gap-3">
+        </Link>
+        <Link href="/help/setup" className="flex items-center gap-3 transition hover:text-white">
           <span>◌</span>
           <span>Support</span>
-        </div>
+        </Link>
         <div className="flex items-center gap-3">
           <span>◌</span>
           <span>SOC2 Compliant</span>
@@ -168,13 +400,13 @@ function OnboardingFooter() {
         <span>◫ End-to-end encrypted</span>
       </div>
       <div className="flex items-center gap-6">
-        <Link href="#" className="hover:text-white">
+        <Link href="/privacy" className="hover:text-white">
           Privacy Policy
         </Link>
-        <Link href="#" className="hover:text-white">
+        <Link href="/terms" className="hover:text-white">
           Terms of Service
         </Link>
-        <Link href="#" className="hover:text-white">
+        <Link href="/help/setup" className="hover:text-white">
           Need help?
         </Link>
       </div>
@@ -203,10 +435,39 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
 
   const hasOrg = Boolean(bootstrap.organization);
   const hasProject = Boolean(bootstrap.project);
-  const hasGithub = Boolean(bootstrap.githubConnection);
-  const activeStage = resolveStage(resolvedParams?.stage, hasOrg, hasProject, hasGithub);
+  const hasRepositoryConnection = Boolean(bootstrap.repositoryConnection);
+  const extensionConnection = await getExtensionConnectionInfo(bootstrap.project?.id);
+  const extensionConnected = extensionConnection.connected;
+  let onboardingProgress = bootstrap.onboardingProgress;
+  if (!bootstrap.onboardingComplete && bootstrap.project && resolvedParams?.skip) {
+    if (resolvedParams.skip === 'integrations') {
+      onboardingProgress = mergeOnboardingProgress(onboardingProgress, { integrationsSkipped: true });
+    } else if (resolvedParams.skip === 'repository') {
+      onboardingProgress = mergeOnboardingProgress(onboardingProgress, { repositorySkipped: true });
+    } else if (resolvedParams.skip === 'extension') {
+      onboardingProgress = mergeOnboardingProgress(onboardingProgress, { extensionSkipped: true });
+    }
+  }
+  const activeStage = resolveStage(
+    resolvedParams?.stage,
+    hasOrg,
+    hasProject,
+    hasRepositoryConnection,
+    bootstrap.onboardingComplete,
+    onboardingProgress,
+    extensionConnected,
+  );
+  const repositoryRouteError = activeStage === 'repository'
+    ? resolveRepositoryRouteError(resolvedParams?.error, resolvedParams?.message)
+    : null;
   const meta = stageMeta[activeStage];
   const durationMs = Date.now() - startedAt;
+
+  let extensionApiKey = '';
+  if (activeStage === 'extension' && bootstrap.project) {
+    extensionApiKey = await getOrCreateExtensionApiKey(bootstrap.project.id);
+  }
+
   logServerEvent('onboarding.rendered', {
     status: 'success',
     userId: user.id,
@@ -217,12 +478,13 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
   });
 
   return (
-    <main className="min-h-screen bg-[#0b0c0f] text-white">
+    <main className="flex min-h-screen flex-col bg-[#0b0c0f] text-white lg:h-screen lg:overflow-hidden">
       <OnboardingHeader />
-      <div className="grid min-h-[calc(100vh-117px)] lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="grid min-h-[calc(100vh-117px)] flex-1 lg:min-h-0 lg:grid-cols-[280px_minmax(0,1fr)] lg:overflow-hidden">
         <OnboardingSidebar activeStage={activeStage} />
 
-        <section className="px-8 py-12">
+        <section className="min-w-0 lg:flex lg:min-h-0 lg:flex-col">
+          <div className="px-8 py-12 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
           <div className="mx-auto max-w-[820px]">
             <div className="mb-10">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#53dca4]">
@@ -247,29 +509,42 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
                 />
               ) : null}
               {activeStage === 'repository' && bootstrap.project ? (
-                <GithubStepForm
+                <RepositoryStepForm
                   projectId={bootstrap.project.id}
-                  repositoryOwner={
-                    bootstrap.githubConnection?.repositoryOwner ?? bootstrap.organization?.slug ?? 'diotest-labs'
-                  }
-                  repositoryName={bootstrap.githubConnection?.repositoryName ?? 'core-engine'}
+                  existingConnection={bootstrap.repositoryConnection}
+                  routeError={repositoryRouteError}
                 />
               ) : null}
-              {activeStage === 'extension' ? <ExtensionSetupStep /> : null}
+              {activeStage === 'extension' ? (
+                <ExtensionSetupStep
+                  projectId={bootstrap.project?.id ?? ''}
+                  organizationSlug={bootstrap.organization?.slug ?? ''}
+                  initialApiKey={extensionApiKey}
+                />
+              ) : null}
               {activeStage === 'finalize' && bootstrap.project ? (
                 <FinalReviewStep
                   organizationName={bootstrap.organization?.name ?? 'DioTest Labs'}
+                  organizationSlug={bootstrap.organization?.slug ?? ''}
                   projectName={bootstrap.project?.name ?? 'Alpha Core'}
+                  projectSlug={bootstrap.project?.slug ?? ''}
+                  projectDescription={bootstrap.project?.description ?? null}
                   projectId={bootstrap.project.id}
-                  repository={
-                    bootstrap.githubConnection
-                      ? `${bootstrap.githubConnection.repositoryOwner}/${bootstrap.githubConnection.repositoryName}`
-                      : 'diotest/core'
+                  repositoryConnection={bootstrap.repositoryConnection}
+                  expectedWebhookUrl={
+                    bootstrap.repositoryConnection && bootstrap.organization
+                      ? absoluteUrl(
+                          `/${bootstrap.organization.slug}/${bootstrap.project.id}/webhooks/${bootstrap.repositoryConnection.provider.toLowerCase()}`,
+                        )
+                      : null
                   }
-                  integrations={bootstrap.integrations.map((integration) => integration.type)}
+                  integrations={bootstrap.integrations}
+                  extensionConnected={extensionConnected}
+                  extensionConnectedAt={extensionConnection.connectedAt}
                 />
               ) : null}
             </div>
+          </div>
           </div>
         </section>
       </div>

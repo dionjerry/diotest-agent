@@ -101,6 +101,50 @@ function shouldCaptureScreenshot(event: RawRecorderEvent): boolean {
   return ["click", "change", "select", "submit", "navigation"].includes(event.action);
 }
 
+function normalizeApiBaseUrl(raw: string): string {
+  return raw.trim().replace(/\/+$/, "");
+}
+
+async function testDioTestConnection(apiBaseUrl: string, apiKey: string) {
+  const normalizedUrl = normalizeApiBaseUrl(apiBaseUrl);
+  const trimmedKey = apiKey.trim();
+
+  if (!normalizedUrl) {
+    return { ok: false as const, error: "Add the project API Base URL from onboarding Step 5 before testing the connection." };
+  }
+
+  if (!trimmedKey) {
+    return { ok: false as const, error: "Add the project API Key from onboarding Step 5 before testing the connection." };
+  }
+
+  try {
+    const response = await fetch(`${normalizedUrl}/api/extension/ping`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ apiKey: trimmedKey })
+    });
+
+    const payload = await response.json().catch(() => null) as { ok?: boolean; error?: string; projectId?: string } | null;
+
+    if (!response.ok || !payload?.ok) {
+      return {
+        ok: false as const,
+        error: payload?.error || `Connection failed with status ${response.status}.`
+      };
+    }
+
+    return {
+      ok: true as const,
+      message: "Saved locally and verified against the DioTest app."
+    };
+  } catch (error) {
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : "Could not reach the DioTest app."
+    };
+  }
+}
+
 async function maybeCaptureScreenshot(active: RecorderActiveState, session: UiRecorderSession, event: RawRecorderEvent) {
   if (!active.recordScreenshots) return undefined;
   if (!shouldCaptureScreenshot(event)) return undefined;
@@ -165,6 +209,11 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendR
       case "settings.save": {
         const result = await saveSettingsAtomically(message.payload);
         sendResponse(result.valid ? { ok: true, settings: result.normalizedSettings } : { ok: false, errors: result.errors });
+        return;
+      }
+      case "extension.connection.test": {
+        const result = await testDioTestConnection(message.payload.apiBaseUrl, message.payload.apiKey);
+        sendResponse(result);
         return;
       }
       case "ui.openPanel": {

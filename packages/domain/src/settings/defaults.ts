@@ -30,5 +30,9 @@ export const DEFAULT_SETTINGS: SettingsLatest = {
   },
   safeMode: {
     enabled: false
+  },
+  connection: {
+    diotestApiUrl: "",
+    diotestApiKey: ""
   }
 };

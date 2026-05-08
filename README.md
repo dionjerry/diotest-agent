@@ -139,6 +139,60 @@ Notes:
 - `pnpm lint` or `npm run lint`
 - `pnpm typecheck` or `npm run typecheck`
 
+## Branch Strategy
+
+DioTest uses a three-branch promotion model:
+
+- `develop`: active development integration
+- `staging`: pre-production QA and release validation
+- `main`: production
+
+Expected flow:
+
+1. feature branches open PRs into `develop`
+2. validated work is promoted from `develop` to `staging`
+3. release-ready work is promoted from `staging` to `main`
+
+Operational rules:
+
+- feature branches do not merge directly into `main`
+- release promotion should happen by merge PRs, not ad hoc cherry-picks
+- urgent hotfixes may go to `main`, but must be back-merged into `staging` and `develop`
+
+Environment intent:
+
+- `develop` -> dev environment
+- `staging` -> staging environment
+- `main` -> production environment
+
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) and [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md) for the operational workflow and protection rules.
+
+## Environment Setup
+
+Use the repo-root `.env` file for local development.
+
+1. Copy [`.env.example`](.env.example) to `.env`
+2. Fill in the required values
+3. Restart the dev server after `.env` changes
+
+The full environment guide, including:
+
+- core app variables
+- SMTP setup
+- Google OAuth
+- GitHub App setup
+- GitLab OAuth setup
+- Trello and Jira integration credentials
+
+is documented in [docs/ENV_SETUP.md](docs/ENV_SETUP.md).
+
+For product-level explanations of onboarding steps and settings meaning, see [docs/concepts/README.md](docs/concepts/README.md).
+
+Current web onboarding also includes:
+
+- per-project repository webhook provisioning during Step 4
+- project-scoped extension connection during Step 5 using a generated API key plus extension ping/status verification
+
 ## v0.1 Constraints
 
 - Editable settings with hard ranges and validation
@@ -178,6 +232,10 @@ Near-term platform work after the MVP extension:
 - [Roadmap](docs/ROADMAP.md)
 - [Non-Goals](docs/NON_GOALS.md)
 - [Contributing](docs/CONTRIBUTING.md)
+- [Environment Setup](docs/ENV_SETUP.md)
+- [Concepts](docs/concepts/README.md)
+- [Repository Onboarding Concepts](docs/concepts/repository-onboarding.md)
+- [Settings And Integrations Concepts](docs/concepts/settings-and-integrations.md)
 
 ## UI Baseline
 

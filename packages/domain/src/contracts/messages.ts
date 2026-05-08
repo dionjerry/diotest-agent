@@ -9,6 +9,7 @@ export type PrContractMessage =
 export type BackgroundMessage =
   | { type: "settings.load" }
   | { type: "settings.save"; payload: unknown }
+  | { type: "extension.connection.test"; payload: { apiBaseUrl: string; apiKey: string } }
   | { type: "ui.openPanel"; payload: { tabId: number; intent: "review" | "review_analyze" | "settings" } }
   | { type: "analysis.run"; payload: { tabId: number; mode: AnalysisMode; includeDeepScan: boolean } }
   | { type: "pr.pageState"; payload: { onPr: boolean; url: string } }

@@ -7,6 +7,7 @@ Current scope:
 - email/password auth with Auth.js
 - Google OAuth-ready wiring
 - onboarding with persisted organization, project, GitHub, and setup defaults
+- project-scoped extension connection during onboarding Step 5
 - minimal signed-in shell reserved for future Dashboard and Studio work
 
 ## Routes
@@ -30,6 +31,12 @@ Protected:
 Use the repo-root `.env` file as the single local source of truth.
 Copy the repo-root `.env.example` to `.env` and fill in the values there.
 
+Long-form setup instructions live in [docs/ENV_SETUP.md](../../docs/ENV_SETUP.md).
+
+Concepts documentation for onboarding and settings meaning lives in [docs/concepts/README.md](../../docs/concepts/README.md).
+
+For settings, integration, and extension connection semantics, see [docs/concepts/settings-and-integrations.md](../../docs/concepts/settings-and-integrations.md).
+
 Important variables:
 - `NEXTAUTH_URL`
 - `NEXTAUTH_SECRET`
@@ -45,6 +52,12 @@ Important variables:
 - `SMTP_FROM`
 - `SMTP_SECURE`
 - `SETTINGS_ENCRYPTION_KEY`
+- `GITHUB_APP_ID`
+- `GITHUB_APP_NAME`
+- `GITHUB_APP_PRIVATE_KEY`
+- `GITHUB_WEBHOOK_SECRET`
+- `GITLAB_CLIENT_ID`
+- `GITLAB_CLIENT_SECRET`
 
 ## Development
 
@@ -80,16 +93,17 @@ Password reset uses SMTP and will only send email when these values are set to r
 
 The example placeholder values in `.env.example` are not treated as valid SMTP configuration.
 
-## Integration Credentials
+## Provider Setup
 
-### Trello
+For detailed instructions for:
 
-To create Trello credentials for DioTest:
-- go to `https://trello.com/app-key`
-- create an API key there
-- on the same App Key / App details page, generate a token
-- use those values in DioTest as:
-  - `apiKey`
-  - `token`
+- GitHub App creation
+- GitLab OAuth
+- Trello credentials
+- Jira API tokens
 
-You will also need your Trello `boardId`, and optionally a `defaultListId` if you want DioTest to create cards in a specific list.
+see [docs/ENV_SETUP.md](../../docs/ENV_SETUP.md).
+
+If you need the product meaning of the repository step, including `Default branch`, webhook configuration, provider differences, and what DioTest stores, see [docs/concepts/repository-onboarding.md](../../docs/concepts/repository-onboarding.md).
+
+If you need the product meaning of integration settings, encrypted secrets, or the Step 5 extension connection API key flow, see [docs/concepts/settings-and-integrations.md](../../docs/concepts/settings-and-integrations.md).
