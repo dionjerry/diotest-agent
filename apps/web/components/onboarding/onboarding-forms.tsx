@@ -879,6 +879,21 @@ export function ExtensionSetupStep({
     setDownloading(true);
     try {
       const response = await fetch(`/api/extension/download?format=${browser}`);
+      if (!response.ok) {
+        let message = 'Failed to download extension. Please try again.';
+
+        try {
+          const data = (await response.json()) as { error?: string };
+          if (data.error) {
+            message = data.error;
+          }
+        } catch {
+          // Ignore JSON parsing failures and fall back to the generic message.
+        }
+
+        throw new Error(message);
+      }
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -893,7 +908,8 @@ export function ExtensionSetupStep({
       setModalOpen(true);
     } catch (error) {
       console.error('Failed to download extension:', error);
-      alert('Failed to download extension. Please try again.');
+      const message = error instanceof Error ? error.message : 'Failed to download extension. Please try again.';
+      alert(message);
     } finally {
       setDownloading(false);
     }
