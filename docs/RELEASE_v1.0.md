@@ -1,127 +1,72 @@
-# DioTest Agent v1.0
-
-## Summary
-
-`v1.0` is the first public MVP release of the Community Edition on `main`.
-
-This release is centered on two working extension-native workflows:
-
-- GitHub PR and commit review
-- local-first UI session recording with reviewed test artifact generation
-
-It also includes the first repository onboarding platform surface for connecting GitHub or GitLab repositories and verifying the browser extension against a DioTest project.
-
-## What v1.0 Actually Includes
-
-### Browser extension
-
-- GitHub PR and commit context extraction from supported GitHub pages
-- deterministic fallback when extraction is incomplete
-- structured analysis outputs for:
-  - risk areas
-  - test plans
-  - manual test cases
-- UI recorder for exploratory browser sessions
-- recorder review flow in the sidepanel with:
-  - `Overview`
-  - `Steps`
-  - `Results`
-- artifact generation from reviewed sessions:
-  - manual cases
-  - Playwright-oriented scenario output
-- local persistence for settings, analysis sessions, and recorder sessions in `chrome.storage.local`
-
-### Web app
-
-- authentication and onboarding flow
-- organization and project setup
-- third-party integration setup scaffolding
-- GitHub and GitLab repository connection flow
-- browser extension connection and verification flow
-- settings and project surfaces for the current workspace
-
-### Backend/API
-
-- bootstrap and settings endpoints for the web app
-- GitHub App install flow support
-- GitLab OAuth support
-- repository webhook provisioning during onboarding
-- encrypted storage for app/provider secrets and project connection secrets
-
-## What v1.0 Does Not Include
-
-These were overstated or implied in the original release notes, but they are not shipped as completed product capabilities in this release:
-
-- no cloud-backed session storage
-- no web dashboard session library equivalent to the extension sidepanel review flow
-- no hosted live session viewer in the web app
-- no cloud session sync backend
-- no fully mature webhook event processing pipeline yet
-- no CI/CD execution pipeline ownership
-- no collaboration or sharing layer for sessions
-
-Recorded sessions are stored locally in browser storage for Community Edition.
-
-## Release Notes You Can Publish
-
-Use this text instead of the overstated release copy.
-
-### DioTest Agent v1.0 - MVP
+# DioTest Agent v1.0 - MVP
 
 PR intelligence plus local-first UI session intelligence for testing.
 
-#### Included in this release
+## What's Included
 
-- Browser extension for GitHub PR and commit review
-- Local UI session recorder with reviewed test artifact generation
-- Extension sidepanel review workspace for session cleanup and output generation
-- Web onboarding for organizations, projects, integrations, repositories, and extension connection
-- GitHub App and GitLab repository connection flow
-- Automatic repository webhook provisioning during repository setup
-- Encrypted storage for provider and project secrets
+### Browser Extension
 
-#### Important product boundaries
+- GitHub PR and commit review from supported GitHub pages
+- Deterministic fallback when page extraction is incomplete
+- Structured outputs for:
+  - risk areas
+  - test plans
+  - manual test cases
+- UI session recorder for exploratory browser testing
+- Sidepanel review flow with:
+  - `Overview`
+  - `Steps`
+  - `Results`
+- Manual test case and Playwright-oriented scenario generation from reviewed sessions
+- Local persistence for settings, analysis sessions, and recorder sessions in `chrome.storage.local`
 
-- Recorder sessions and generated review history are stored locally in `chrome.storage.local`
+## Important MVP Boundaries
+
+- Sessions and generated review history are stored locally in `chrome.storage.local`
 - The extension sidepanel is the primary session review surface in this MVP
-- The web app currently focuses on onboarding, repository connection, extension connection, and settings
-- Webhook provisioning is included, but downstream webhook event handling is still being hardened
+- No cloud sync backend is included in this release
+- No web dashboard session library is included in this release
 
-#### Best fit for v1.0
+## Quick Start
 
-- developers reviewing GitHub PRs and commits
-- QA engineers turning exploratory browser sessions into reusable test artifacts
-- teams that want a local-first workflow before adopting cloud collaboration features
+### Install from the release zip
 
-## Recommended Installation Notes
-
-### Extension
-
-1. Clone the repo and install dependencies
-2. Build the extension with `npm run build`
+1. Download `diotest-extension-v1.0.zip` from the `v1.0` release assets
+2. Extract the zip to a local folder
 3. Open `chrome://extensions`
 4. Enable Developer Mode
-5. Load the unpacked extension from `apps/extension`
+5. Click `Load unpacked`
+6. Select the extracted extension folder
 
-### Web platform
+### Build from source instead
 
-1. Configure `.env`
-2. Start the API and web app
-3. Complete onboarding
-4. Connect the extension in Step 5
+1. Clone the repo and install dependencies
+2. Run `npm install`
+3. Run `npm run build`
+4. Open `chrome://extensions`
+5. Enable Developer Mode
+6. Load the unpacked extension from `apps/extension`
+
+## Screenshots
+
+Recommended screenshots for the public `v1.0` release page:
+
+- Review tab
+  - Shows the PR/commit analysis entrypoint with `Analyze PR / Commit`
+  - Shows the `UI Recorder` section with `Start Recording`
+- Sessions tab
+  - Shows saved local analysis runs in the extension sidepanel
+
+Add the screenshots directly to the GitHub release page so the release body visually matches the shipped extension UI.
 
 ## Known MVP Limitations
 
-- GitHub reauthorization and reconnect UX still has edge cases around expired install-session cookies
-- repository webhook repair flows are still being polished
-- ngrok/public-origin setup must be configured correctly for callback and webhook URLs
-- session storage is local-only in Community Edition
+- Session storage is local-only in Community Edition
+- The extension is optimized first for GitHub PR and commit workflows
+- Cloud collaboration, sharing, and sync are not part of this release
 
-## Source of Truth
+## Best Fit
 
-For current shipped behavior, use these documents as primary references:
-
-- [README.md](../README.md)
-- [MVP Spec](./MVP_SPEC.md)
-- [Non-Goals](./NON_GOALS.md)
-- [Product Strategy](./PRODUCT_STRATEGY.md)
+- Developers reviewing GitHub PRs and commits
+- QA engineers turning exploratory browser sessions into reusable test artifacts
+- Teams that want a local-first workflow before adopting any future hosted features
