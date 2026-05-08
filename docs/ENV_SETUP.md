@@ -42,6 +42,8 @@ Example:
 NEXTAUTH_URL=https://your-public-tunnel.ngrok-free.dev
 ```
 
+If you run separate dev, staging, and production deployments, each environment needs its own public app URL and matching callback/webhook settings. Do not assume one `NEXTAUTH_URL`, GitHub App URL set, or provider webhook base URL serves every environment.
+
 ## SMTP Setup
 
 Password reset requires valid SMTP credentials:

@@ -139,6 +139,34 @@ Notes:
 - `pnpm lint` or `npm run lint`
 - `pnpm typecheck` or `npm run typecheck`
 
+## Branch Strategy
+
+DioTest uses a three-branch promotion model:
+
+- `develop`: active development integration
+- `staging`: pre-production QA and release validation
+- `main`: production
+
+Expected flow:
+
+1. feature branches open PRs into `develop`
+2. validated work is promoted from `develop` to `staging`
+3. release-ready work is promoted from `staging` to `main`
+
+Operational rules:
+
+- feature branches do not merge directly into `main`
+- release promotion should happen by merge PRs, not ad hoc cherry-picks
+- urgent hotfixes may go to `main`, but must be back-merged into `staging` and `develop`
+
+Environment intent:
+
+- `develop` -> dev environment
+- `staging` -> staging environment
+- `main` -> production environment
+
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) and [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md) for the operational workflow and protection rules.
+
 ## Environment Setup
 
 Use the repo-root `.env` file for local development.
