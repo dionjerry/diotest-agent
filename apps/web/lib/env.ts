@@ -8,6 +8,32 @@ const repoRoot = path.resolve(__dirname, '../../..');
 config({ path: path.join(repoRoot, '.env') });
 config({ path: path.join(repoRoot, '.env.local'), override: true });
 
+// Module initialization check
+const moduleInitTime = new Date().toISOString().split('T')[1].split('.')[0];
+console.log(`\n📦 [${moduleInitTime}] Initializing Web module...`);
+
+try {
+  // Validate core configuration early
+  if (!process.env.APP_BASE_URL) {
+    throw new Error('APP_BASE_URL environment variable is required (e.g., http://localhost:3000 or https://your-domain.com)');
+  }
+  if (!process.env.NEXTAUTH_SECRET) {
+    throw new Error('NEXTAUTH_SECRET environment variable is required for session encryption');
+  }
+  if (!process.env.SETTINGS_ENCRYPTION_KEY) {
+    throw new Error('SETTINGS_ENCRYPTION_KEY environment variable is required for settings encryption');
+  }
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL environment variable is required for database connection');
+  }
+} catch (error) {
+  console.error(`❌ [${moduleInitTime}] Web module initialization failed:`);
+  console.error(`   ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}
+
+console.log(`✓ [${moduleInitTime}] Web module configuration validated`);
+
 export const env = {
   appBaseUrl: process.env.APP_BASE_URL || (() => {
     throw new Error('APP_BASE_URL environment variable is required (e.g., http://localhost:3000 or https://your-domain.com)');
