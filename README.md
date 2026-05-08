@@ -138,7 +138,7 @@ Notes:
 - `pnpm lint` or `npm run lint`
 - `pnpm typecheck` or `npm run typecheck`
 
-## v0.1 Constraints
+## v1.0 Constraints
 
 - Editable settings with hard ranges and validation
 - Atomic settings save in `chrome.storage.local`
@@ -148,7 +148,7 @@ Notes:
   - `diotest_pr_<repo>_<pr>.json|md`
   - `diotest_ui_session_<domain>_<timestamp>.json|md`
 
-## v0.1 Non-Goals
+## v1.0 Non-Goals
 
 - No repo-wide scan
 - No CI integration execution
@@ -171,6 +171,7 @@ Near-term platform work after the MVP extension:
 
 ## Learn More
 
+- [v1.0 Release Notes](docs/RELEASE_v1.0.md)
 - [Product Strategy](docs/PRODUCT_STRATEGY.md)
 - [Market Fit](docs/MARKET_FIT.md)
 - [MVP Spec](docs/MVP_SPEC.md)

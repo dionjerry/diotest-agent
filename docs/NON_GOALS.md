@@ -1,4 +1,4 @@
-# v0.1 Non-Goals
+# v1.0 Non-Goals
 
 - No repo-wide scan
 - No CI integration

@@ -2,7 +2,7 @@
 
 ## Scope
 
-DioTest v0.1 focuses on browser-extension workflow quality for GitHub PR/commit review.
+DioTest v1.0 focuses on browser-extension workflow quality for GitHub PR/commit review and local-first UI session recording.
 
 Core capabilities:
 
@@ -41,7 +41,7 @@ Planned export modes (phased):
 - **Phase 3:** IDE-focused Testing Agent workflow.
 - **Phase 4:** optional cloud testing functions for teams/org workflows.
 
-## Non-Goal Boundaries (v0.1)
+## Non-Goal Boundaries (v1.0)
 
 - No repo-wide autonomous scanning/execution
 - No CI orchestration/execution pipeline ownership
