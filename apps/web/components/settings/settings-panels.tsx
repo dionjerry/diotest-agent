@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useMemo, useState } from 'react';
+import Link from 'next/link';
 
 import type { ActionState } from '@/app/actions';
 import {
@@ -16,6 +17,7 @@ import {
 } from '@/components/integrations/provider-fields';
 import { TestConnectionButton } from '@/components/integrations/test-connection-button';
 import type { SettingsResponse } from '@/lib/api';
+import { getIntegrationHealthPresentation, getRepositoryConnectionPresentation } from '@/lib/connection-status';
 import { FormMessage } from '@/components/forms/form-message';
 import { SubmitButton } from '@/components/forms/submit-button';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +26,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 const initialState: ActionState = {};
+
+function toneFromLabelTone(tone: 'neutral' | 'brand' | 'warn' | 'danger' | 'success') {
+  return tone === 'neutral' ? 'neutral' : tone === 'danger' ? 'danger' : tone === 'warn' ? 'warn' : tone === 'brand' ? 'brand' : 'success';
+}
 
 export function OAuthSettingsCard({
   oauth,
@@ -244,6 +250,110 @@ export function IntegrationSecretsCard({
         <FormMessage>{secretState.error}</FormMessage>
         <SubmitButton idleLabel="Save integration credentials" pendingLabel="Saving credentials..." />
       </form>
+    </Card>
+  );
+}
+
+export function RepositoryHealthCard({
+  connection,
+}: {
+  connection: SettingsResponse['repositoryConnection'];
+}) {
+  const status = getRepositoryConnectionPresentation(connection);
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-xs uppercase tracking-[0.18em] text-soft">Connection health</div>
+          <h2 className="mt-3 text-xl font-semibold text-text">Repository connection</h2>
+          <p className="mt-2 text-sm leading-6 text-muted">{status.summary}</p>
+        </div>
+        <Badge tone={toneFromLabelTone(status.tone)}>{status.label}</Badge>
+      </div>
+
+      <div className="mt-6 rounded-3xl border border-line bg-zinc-950/40 p-4">
+        <div className="text-sm font-medium text-text">
+          {connection ? connection.fullName : 'No repository connected'}
+        </div>
+        <div className="mt-2 text-sm leading-6 text-soft">
+          {connection
+            ? `${connection.provider === 'GITHUB' ? 'GitHub' : 'GitLab'} • baseline branch ${connection.defaultBranch}`
+            : 'Connect GitHub or GitLab in onboarding to enable repository-aware workflows and webhook health tracking.'}
+        </div>
+        {status.recovery ? <div className="mt-3 text-sm leading-6 text-muted">{status.recovery}</div> : null}
+        {connection?.webhookLastError ? (
+          <details className="mt-4 rounded-2xl border border-line bg-zinc-950/50 px-4 py-3 text-sm text-soft">
+            <summary className="cursor-pointer font-medium text-text">Advanced webhook detail</summary>
+            <div className="mt-2 leading-6">{connection.webhookLastError}</div>
+          </details>
+        ) : null}
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Link href="/onboarding?stage=repository" className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm text-zinc-100 transition hover:bg-zinc-800">
+            {connection ? 'Repair repository connection' : 'Connect repository'}
+          </Link>
+          <Link href="/docs/concepts/repository-onboarding" className="rounded-2xl border border-line px-4 py-2 text-sm text-soft transition hover:border-white/15 hover:text-white">
+            Review repository concepts
+          </Link>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export function IntegrationHealthCards({
+  projectId,
+  integrations,
+}: {
+  projectId: string;
+  integrations: SettingsResponse['integrations'];
+}) {
+  return (
+    <Card className="p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-xs uppercase tracking-[0.18em] text-soft">Connection health</div>
+          <h2 className="mt-3 text-xl font-semibold text-text">Project integrations</h2>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Review which integrations are fully ready, which still need credentials, and where to repair them.
+          </p>
+        </div>
+        <Badge tone="brand">{integrations.length} linked</Badge>
+      </div>
+      <div className="mt-6 space-y-3">
+        {integrations.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-line bg-zinc-950/30 px-4 py-6 text-sm text-muted">
+            No project integrations are connected yet.
+          </div>
+        ) : (
+          integrations.map((integration) => {
+            const status = getIntegrationHealthPresentation(integration);
+            return (
+              <div key={integration.id} className="rounded-3xl border border-line bg-zinc-950/40 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-text">{integration.type}</div>
+                    <div className="mt-1 text-sm leading-6 text-soft">{status.summary}</div>
+                    {status.recovery ? <div className="mt-2 text-sm leading-6 text-muted">{status.recovery}</div> : null}
+                    {integration.secretPreview.length > 0 ? (
+                      <div className="mt-2 text-xs text-soft">{integration.secretPreview.join(' · ')}</div>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Badge tone={toneFromLabelTone(status.tone)}>{status.label}</Badge>
+                    {integration.health.isConfigured ? (
+                      <TestConnectionButton projectId={projectId} type={integration.type as SupportedIntegrationType} />
+                    ) : null}
+                    <Link href="/onboarding?stage=integrations" className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm text-zinc-100 transition hover:bg-zinc-800">
+                      Repair integration
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
     </Card>
   );
 }

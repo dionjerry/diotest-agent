@@ -20,6 +20,18 @@ const nextConfig = {
 
     return config;
   },
+  onDemandEntries: {
+    maxInactiveAge: 60 * 1000,
+    pagesBufferLength: 5,
+  },
+  // Allow ngrok and localhost for development cross-origin requests
+  allowedDevOrigins: [
+    'localhost:3000',
+    'localhost:3001',
+    '*.ngrok-free.dev',
+    '*.ngrok.io',
+    '127.0.0.1:3000',
+  ],
 };
 
 export default nextConfig;

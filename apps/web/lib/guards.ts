@@ -27,7 +27,7 @@ export async function requireOnboardedUser() {
   try {
     const bootstrap = await getBootstrap(user.id);
 
-    if (!bootstrap.organization || !bootstrap.project) {
+    if (!bootstrap.organization || !bootstrap.project || !bootstrap.onboardingComplete) {
       redirect('/onboarding');
     }
 

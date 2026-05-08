@@ -28488,6 +28488,10 @@ var DEFAULT_SETTINGS = {
   },
   safeMode: {
     enabled: false
+  },
+  connection: {
+    diotestApiUrl: "",
+    diotestApiKey: ""
   }
 };
 
@@ -28676,6 +28680,8 @@ function SettingsPanel({ settings, onSaved }) {
   const [draft, setDraft] = (0, import_react.useState)(settings);
   const [saveError, setSaveError] = (0, import_react.useState)(null);
   const [saved, setSaved] = (0, import_react.useState)(false);
+  const [connectionState, setConnectionState] = (0, import_react.useState)("idle");
+  const [connectionMessage, setConnectionMessage] = (0, import_react.useState)(null);
   const validation = (0, import_react.useMemo)(() => validateSettings(draft), [draft]);
   function set(path, value) {
     const next = structuredClone(draft);
@@ -28683,6 +28689,8 @@ function SettingsPanel({ settings, onSaved }) {
     next[a][b] = value;
     setDraft(next);
     setSaved(false);
+    setConnectionState("idle");
+    setConnectionMessage(null);
   }
   function setProvider(provider) {
     const next = structuredClone(draft);
@@ -28693,6 +28701,8 @@ function SettingsPanel({ settings, onSaved }) {
     }
     setDraft(next);
     setSaved(false);
+    setConnectionState("idle");
+    setConnectionMessage(null);
   }
   async function save() {
     setSaveError(null);
@@ -28705,6 +28715,24 @@ function SettingsPanel({ settings, onSaved }) {
     setDraft(result.settings);
     setSaved(true);
     setTimeout(() => setSaved(false), 2e3);
+  }
+  async function testConnection() {
+    setConnectionState("loading");
+    setConnectionMessage(null);
+    const result = await sendMessage({
+      type: "extension.connection.test",
+      payload: {
+        apiBaseUrl: draft.connection.diotestApiUrl,
+        apiKey: draft.connection.diotestApiKey
+      }
+    });
+    if (result.ok) {
+      setConnectionState("success");
+      setConnectionMessage(result.message || "Connection verified.");
+      return;
+    }
+    setConnectionState("error");
+    setConnectionMessage(result.error || "Connection failed.");
   }
   const prMaxFilesRange = SETTING_RANGES["pr.maxFiles"];
   const prMaxDiffRange = SETTING_RANGES["pr.maxDiffLines"];
@@ -28884,6 +28912,37 @@ function SettingsPanel({ settings, onSaved }) {
           onChange: (v) => set("safeMode.enabled", v)
         }
       )
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "settings-section", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "settings-section-title", children: "DioTest Connection" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: "API Base URL", hint: "Format: https://app.ngrok.io/ORG_SLUG/PROJECT_ID", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        Input,
+        {
+          type: "text",
+          value: draft.connection.diotestApiUrl,
+          onChange: (e) => set("connection.diotestApiUrl", e.target.value),
+          placeholder: "https://app.ngrok.io/my-org/proj-123"
+        }
+      ) }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: "API Key", hint: "Copy from onboarding Step 5", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        Input,
+        {
+          type: "password",
+          value: draft.connection.diotestApiKey,
+          onChange: (e) => set("connection.diotestApiKey", e.target.value),
+          placeholder: "dto_..."
+        }
+      ) }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "settings-actions", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        Button,
+        {
+          variant: connectionState === "success" ? "secondary" : "default",
+          disabled: connectionState === "loading",
+          onClick: () => void testConnection(),
+          children: connectionState === "loading" ? "Testing..." : "Test Connection"
+        }
+      ) }),
+      connectionMessage ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: connectionState === "success" ? "field-hint" : "field-error", children: connectionMessage }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "field-hint", children: "Save these fields first, then test the connection against the DioTest app." })
     ] }),
     validation.errors.global && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "warning-banner", children: validation.errors.global }),
     saveError && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "warning-banner", children: saveError }),

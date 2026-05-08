@@ -30,8 +30,8 @@ export default async function ProjectsPage() {
     {
       name: bootstrap.project?.name ?? 'Project Alpha',
       slug: bootstrap.project?.slug ?? 'project-alpha',
-      repo: bootstrap.githubConnection
-        ? `${bootstrap.githubConnection.repositoryOwner}/${bootstrap.githubConnection.repositoryName}`
+      repo: bootstrap.repositoryConnection
+        ? bootstrap.repositoryConnection.fullName
         : 'Repository pending',
       tests: Math.max(48, actionState.actions.length * 4 + 12),
       health: `${settings.ai.preferredProvider.toUpperCase()} • ${settings.ai.model || 'Default model'}`,

@@ -13,6 +13,9 @@ export function slugify(value: string) {
 }
 
 export function absoluteUrl(path: string) {
-  const base = process.env.NEXTAUTH_URL ?? 'http://localhost:3000';
+  const base = process.env.APP_BASE_URL;
+  if (!base) {
+    throw new Error('APP_BASE_URL environment variable is required for generating absolute URLs (GitHub callbacks, webhooks, etc)');
+  }
   return new URL(path, base).toString();
 }

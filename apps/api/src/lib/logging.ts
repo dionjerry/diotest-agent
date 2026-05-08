@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 
 import { env } from '../env.js';
-import { isDatabaseUnavailableError } from './errors.js';
+import { isDatabaseUnavailableError, isPrismaUniqueConstraintError } from './errors.js';
 
 type ErrorCategory =
   | 'validation_error'
@@ -81,6 +81,7 @@ function toErrorMeta(error: unknown) {
 
 export function classifyError(error: unknown, statusCode?: number): ErrorCategory {
   if (error instanceof ZodError || statusCode === 400) return 'validation_error';
+  if (statusCode === 409 || isPrismaUniqueConstraintError(error)) return 'validation_error';
   if (statusCode === 401) return 'auth_error';
   if (statusCode === 403) return 'permission_error';
   if (isDatabaseUnavailableError(error) || error instanceof Prisma.PrismaClientKnownRequestError || error instanceof Prisma.PrismaClientInitializationError) {

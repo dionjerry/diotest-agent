@@ -26,4 +26,27 @@ const schema = z.object({
   DEBUG_BACKEND: booleanFromEnv.default(false),
 });
 
-export const env = schema.parse(process.env);
+// Module initialization check
+const moduleInitTime = new Date().toISOString().split('T')[1].split('.')[0];
+console.log(`\n📦 [${moduleInitTime}] Initializing API module...`);
+
+let env: z.infer<typeof schema>;
+try {
+  env = schema.parse(process.env);
+  console.log(`✓ [${moduleInitTime}] API module configuration validated`);
+  if (process.env.DEBUG_BACKEND) {
+    console.log(`  Port: ${env.PORT}, Host: ${env.HOST}`);
+  }
+} catch (error) {
+  console.error(`❌ [${moduleInitTime}] API module initialization failed:`);
+  if (error instanceof z.ZodError) {
+    error.errors.forEach((e) => {
+      console.error(`   ${e.path.join('.')}: ${e.message}`);
+    });
+  } else {
+    console.error(`   ${error instanceof Error ? error.message : String(error)}`);
+  }
+  process.exit(1);
+}
+
+export { env };

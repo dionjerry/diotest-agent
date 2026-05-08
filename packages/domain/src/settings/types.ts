@@ -29,6 +29,10 @@ export interface SettingsV1 {
   safeMode: {
     enabled: boolean;
   };
+  connection: {
+    diotestApiUrl: string;
+    diotestApiKey: string;
+  };
 }
 
 export type SettingsLatest = SettingsV1;
