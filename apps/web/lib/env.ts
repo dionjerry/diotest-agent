@@ -9,9 +9,12 @@ config({ path: path.join(repoRoot, '.env') });
 config({ path: path.join(repoRoot, '.env.local'), override: true });
 
 export const env = {
+  appBaseUrl: process.env.APP_BASE_URL || (() => {
+    throw new Error('APP_BASE_URL environment variable is required (e.g., http://localhost:3000 or https://your-domain.com)');
+  })(),
   apiBaseUrl: process.env.API_BASE_URL ?? 'http://localhost:4000',
   internalApiKey: process.env.INTERNAL_API_KEY ?? '',
-  nextAuthUrl: process.env.NEXTAUTH_URL ?? 'http://localhost:3000',
+  nextAuthUrl: process.env.NEXTAUTH_URL ?? process.env.APP_BASE_URL ?? '',
   nextAuthSecret: process.env.NEXTAUTH_SECRET ?? '',
   settingsEncryptionKey: process.env.SETTINGS_ENCRYPTION_KEY ?? '',
   github: {
