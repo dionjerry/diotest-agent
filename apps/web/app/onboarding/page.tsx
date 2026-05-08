@@ -15,17 +15,14 @@ import { requireOnboardingState } from '@/lib/guards';
 import {
   isOnboardingStage,
   mergeOnboardingProgress,
-  mergeStageProgress,
-  ONBOARDING_PROGRESS_KEY,
   onboardingStageOrder,
   type OnboardingProgress,
   type OnboardingStage,
 } from '@/lib/onboarding-state';
-import { saveSystemSetting } from '@/lib/api';
 import { decryptPayload, encryptPayload } from '@/lib/encryption';
 import { prisma } from '@/lib/prisma';
 import { logServerEvent, logServerDebug } from '@/lib/server-logger';
-import { slugify } from '@/lib/utils';
+import { absoluteUrl, slugify } from '@/lib/utils';
 
 type PageProps = {
   searchParams?: Promise<{
@@ -71,7 +68,7 @@ const stageMeta: Record<
   finalize: {
     title: 'Review Your Configuration',
     description:
-      'Confirm your environment and integration settings before initializing the testing cluster.',
+      'Review the saved project setup, rerun any step that still needs attention, then enter the workspace.',
   },
 };
 
@@ -226,18 +223,41 @@ function isStageCleared(stage: StageKey, progress: OnboardingProgress | null, ha
   return false;
 }
 
+async function getExtensionConnectionInfo(projectId: string | undefined) {
+  if (!projectId) {
+    return { connected: false, connectedAt: null as string | null };
+  }
+
+  const setting = await prisma.systemSetting.findFirst({
+    where: {
+      scope: 'PROJECT',
+      projectId,
+      key: 'extension.connectedAt',
+    },
+    select: {
+      value: true,
+    },
+  });
+
+  return {
+    connected: Boolean(setting?.value),
+    connectedAt: typeof setting?.value === 'string' ? setting.value : null,
+  };
+}
+
 function getFirstIncompleteStage(
   hasOrg: boolean,
   hasProject: boolean,
   hasRepositoryConnection: boolean,
   progress: OnboardingProgress | null,
+  extensionConnected: boolean,
 ): StageKey {
   if (!hasOrg) return 'organization';
   if (!hasProject) return 'project';
 
   if (!isStageCleared('integrations', progress, hasRepositoryConnection)) return 'integrations';
   if (!isStageCleared('repository', progress, hasRepositoryConnection)) return 'repository';
-  if (!isStageCleared('extension', progress, hasRepositoryConnection)) return 'extension';
+  if (!extensionConnected && !isStageCleared('extension', progress, hasRepositoryConnection)) return 'extension';
   return 'finalize';
 }
 
@@ -248,6 +268,7 @@ function resolveStage(
   hasRepositoryConnection: boolean,
   onboardingComplete: boolean,
   progress: OnboardingProgress | null,
+  extensionConnected: boolean,
 ): StageKey {
   const requested = isOnboardingStage(stage) ? stage : undefined;
 
@@ -255,7 +276,13 @@ function resolveStage(
     return requested ?? 'finalize';
   }
 
-  const firstIncomplete = getFirstIncompleteStage(hasOrg, hasProject, hasRepositoryConnection, progress);
+  const firstIncomplete = getFirstIncompleteStage(
+    hasOrg,
+    hasProject,
+    hasRepositoryConnection,
+    progress,
+    extensionConnected,
+  );
 
   if (!requested) return firstIncomplete;
   if (requested === 'organization' || requested === 'project') return firstIncomplete;
@@ -264,18 +291,6 @@ function resolveStage(
   const firstIncompleteIndex = stageOrder.indexOf(firstIncomplete);
 
   return requestedIndex > firstIncompleteIndex ? firstIncomplete : requested;
-}
-
-async function persistOnboardingProgress(projectId: string, progress: OnboardingProgress | null, stage: StageKey) {
-  const next = mergeOnboardingProgress(progress, {
-    lastVisitedStage: mergeStageProgress(progress?.lastVisitedStage, stage),
-  });
-  await saveSystemSetting({
-    scope: 'PROJECT',
-    projectId,
-    key: ONBOARDING_PROGRESS_KEY,
-    value: next,
-  });
 }
 
 function OnboardingHeader() {
@@ -298,7 +313,7 @@ function OnboardingSidebar({ activeStage }: { activeStage: StageKey }) {
   const activeIndex = stageOrder.indexOf(activeStage);
 
   return (
-    <aside className="flex flex-col border-r border-white/6 bg-[#0b0c0f] px-5 pb-8 pt-10">
+    <aside className="flex h-full flex-col border-r border-white/6 bg-[#0b0c0f] px-5 pb-8 pt-10 lg:sticky lg:top-0">
       <div className="mb-8">
         <h1 className="text-[1.7rem] font-bold tracking-[-0.05em] text-white">Setup Guide</h1>
         <p className="mt-2 text-sm text-[#8c8f97]">
@@ -310,14 +325,10 @@ function OnboardingSidebar({ activeStage }: { activeStage: StageKey }) {
         {sidebarLabels.map(([stage, label], index) => {
           const active = activeStage === stage;
           const complete = activeIndex > index;
-
-          return (
-            <div
-              key={stage}
-              className={`relative flex items-center gap-3 rounded-[6px] px-3 py-3 text-sm font-medium transition ${
-                active ? 'bg-white/5 text-white' : complete ? 'text-[#8fdaaf]' : 'text-[#7d8087]'
-              }`}
-            >
+          const href = `/onboarding?stage=${stage}`;
+          const isReopenable = activeStage === 'finalize' && index < activeIndex && stage !== 'organization' && stage !== 'project';
+          const content = (
+            <>
               {index < sidebarLabels.length - 1 ? (
                 <span className="absolute left-[22px] top-10 h-4 w-px bg-white/10" />
               ) : null}
@@ -333,20 +344,45 @@ function OnboardingSidebar({ activeStage }: { activeStage: StageKey }) {
                 {complete ? '✓' : index + 1}
               </span>
               <span>{label}</span>
+            </>
+          );
+
+          if (isReopenable) {
+            return (
+              <Link
+                key={stage}
+                href={href}
+                className={`relative flex items-center gap-3 rounded-[6px] px-3 py-3 text-sm font-medium transition hover:bg-white/5 hover:text-white ${
+                  active ? 'bg-white/5 text-white' : complete ? 'text-[#8fdaaf]' : 'text-[#7d8087]'
+                }`}
+              >
+                {content}
+              </Link>
+            );
+          }
+
+          return (
+            <div
+              key={stage}
+              className={`relative flex items-center gap-3 rounded-[6px] px-3 py-3 text-sm font-medium transition ${
+                active ? 'bg-white/5 text-white' : complete ? 'text-[#8fdaaf]' : 'text-[#7d8087]'
+              }`}
+            >
+              {content}
             </div>
           );
         })}
       </nav>
 
       <div className="mt-auto space-y-4 border-t border-white/6 pt-6 text-sm text-[#777a82]">
-        <div className="flex items-center gap-3">
+        <Link href="/docs/concepts" className="flex items-center gap-3 transition hover:text-white">
           <span>◫</span>
           <span>Documentation</span>
-        </div>
-        <div className="flex items-center gap-3">
+        </Link>
+        <Link href="/help/setup" className="flex items-center gap-3 transition hover:text-white">
           <span>◌</span>
           <span>Support</span>
-        </div>
+        </Link>
         <div className="flex items-center gap-3">
           <span>◌</span>
           <span>SOC2 Compliant</span>
@@ -364,13 +400,13 @@ function OnboardingFooter() {
         <span>◫ End-to-end encrypted</span>
       </div>
       <div className="flex items-center gap-6">
-        <Link href="#" className="hover:text-white">
+        <Link href="/privacy" className="hover:text-white">
           Privacy Policy
         </Link>
-        <Link href="#" className="hover:text-white">
+        <Link href="/terms" className="hover:text-white">
           Terms of Service
         </Link>
-        <Link href="#" className="hover:text-white">
+        <Link href="/help/setup" className="hover:text-white">
           Need help?
         </Link>
       </div>
@@ -400,6 +436,8 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
   const hasOrg = Boolean(bootstrap.organization);
   const hasProject = Boolean(bootstrap.project);
   const hasRepositoryConnection = Boolean(bootstrap.repositoryConnection);
+  const extensionConnection = await getExtensionConnectionInfo(bootstrap.project?.id);
+  const extensionConnected = extensionConnection.connected;
   let onboardingProgress = bootstrap.onboardingProgress;
   if (!bootstrap.onboardingComplete && bootstrap.project && resolvedParams?.skip) {
     if (resolvedParams.skip === 'integrations') {
@@ -417,10 +455,8 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
     hasRepositoryConnection,
     bootstrap.onboardingComplete,
     onboardingProgress,
+    extensionConnected,
   );
-  if (!bootstrap.onboardingComplete && bootstrap.project) {
-    await persistOnboardingProgress(bootstrap.project.id, onboardingProgress, activeStage);
-  }
   const repositoryRouteError = activeStage === 'repository'
     ? resolveRepositoryRouteError(resolvedParams?.error, resolvedParams?.message)
     : null;
@@ -442,12 +478,13 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
   });
 
   return (
-    <main className="min-h-screen bg-[#0b0c0f] text-white">
+    <main className="flex min-h-screen flex-col bg-[#0b0c0f] text-white lg:h-screen lg:overflow-hidden">
       <OnboardingHeader />
-      <div className="grid min-h-[calc(100vh-117px)] lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="grid min-h-[calc(100vh-117px)] flex-1 lg:min-h-0 lg:grid-cols-[280px_minmax(0,1fr)] lg:overflow-hidden">
         <OnboardingSidebar activeStage={activeStage} />
 
-        <section className="px-8 py-12">
+        <section className="min-w-0 lg:flex lg:min-h-0 lg:flex-col">
+          <div className="px-8 py-12 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
           <div className="mx-auto max-w-[820px]">
             <div className="mb-10">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#53dca4]">
@@ -488,15 +525,26 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
               {activeStage === 'finalize' && bootstrap.project ? (
                 <FinalReviewStep
                   organizationName={bootstrap.organization?.name ?? 'DioTest Labs'}
+                  organizationSlug={bootstrap.organization?.slug ?? ''}
                   projectName={bootstrap.project?.name ?? 'Alpha Core'}
+                  projectSlug={bootstrap.project?.slug ?? ''}
+                  projectDescription={bootstrap.project?.description ?? null}
                   projectId={bootstrap.project.id}
-                  repository={
-                    bootstrap.repositoryConnection ? bootstrap.repositoryConnection.fullName : 'Repository pending'
+                  repositoryConnection={bootstrap.repositoryConnection}
+                  expectedWebhookUrl={
+                    bootstrap.repositoryConnection && bootstrap.organization
+                      ? absoluteUrl(
+                          `/${bootstrap.organization.slug}/${bootstrap.project.id}/webhooks/${bootstrap.repositoryConnection.provider.toLowerCase()}`,
+                        )
+                      : null
                   }
-                  integrations={bootstrap.integrations.map((integration) => integration.type)}
+                  integrations={bootstrap.integrations}
+                  extensionConnected={extensionConnected}
+                  extensionConnectedAt={extensionConnection.connectedAt}
                 />
               ) : null}
             </div>
+          </div>
           </div>
         </section>
       </div>

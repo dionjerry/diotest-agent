@@ -1,7 +1,13 @@
 import Link from 'next/link';
 
 import { SignOutButton } from '@/components/auth/sign-out-button';
-import { AiSettingsCard, IntegrationSecretsCard, OAuthSettingsCard } from '@/components/settings/settings-panels';
+import {
+  AiSettingsCard,
+  IntegrationHealthCards,
+  IntegrationSecretsCard,
+  OAuthSettingsCard,
+  RepositoryHealthCard,
+} from '@/components/settings/settings-panels';
 import { BackendUnavailable } from '@/components/system/backend-unavailable';
 import { LogoLockup } from '@/components/ui/logo';
 import { getSettings } from '@/lib/api';
@@ -9,7 +15,7 @@ import { requireOnboardedUser } from '@/lib/guards';
 
 const productTabs = ['Analysis', 'Recorder', 'Agents', 'Settings'] as const;
 const sideNav = ['Dashboard', 'PR Analysis', 'Live Session', 'Test Vault', 'Analytics'] as const;
-const settingSections = ['General', 'Environment Variables', 'Integrations', 'Webhooks', 'Access Tokens'] as const;
+const settingSections = ['Connection Health', 'AI / Runtime', 'Integrations', 'Auth / OAuth', 'Advanced'] as const;
 
 export default async function SettingsPage() {
   const { bootstrap, unavailable, unavailableMessage } = await requireOnboardedUser();
@@ -33,27 +39,6 @@ export default async function SettingsPage() {
     ['DB_PASSWORD', '••••••••••••••••'],
     ['MAX_RETRY_ATTEMPTS', '5'],
   ];
-  const activeIntegrations = [
-    settings.repositoryConnection
-      ? {
-          name: settings.repositoryConnection.provider === 'GITHUB' ? 'GitHub' : 'GitLab',
-          subtitle: `Connected as ${settings.repositoryConnection.fullName}`,
-          state: settings.repositoryConnection.webhookStatus === 'configured' ? 'CONNECTED' : 'WEBHOOK FAILED',
-          action: 'Reconnect',
-          href: '/onboarding?stage=repository',
-        }
-      : null,
-    ...settings.integrations.map((integration) => ({
-      name: integration.type,
-      subtitle: integration.health.isConfigured
-        ? `${integration.name} is ready`
-        : `Missing ${integration.health.missing.join(', ') || 'credentials'}`,
-      state: integration.health.isConfigured ? 'READY' : 'INCOMPLETE',
-      action: 'Configure',
-      href: '/onboarding?stage=integrations',
-    })),
-  ].filter((item): item is { name: string; subtitle: string; state: string; action: string; href: string } => item !== null);
-
   return (
     <main className="min-h-screen bg-[#0a0b0e] text-white">
       <div className="grid min-h-screen lg:grid-cols-[178px_minmax(0,1fr)]">
@@ -81,8 +66,8 @@ export default async function SettingsPage() {
             <button className="flex h-10 w-full items-center justify-center rounded-[4px] border border-white/6 bg-[#17181d]">
               + New Analysis
             </button>
-            <div>Documentation</div>
-            <div>Support</div>
+            <Link href="/docs/concepts" className="transition hover:text-white">Documentation</Link>
+            <Link href="/help/setup" className="transition hover:text-white">Support</Link>
           </div>
         </aside>
 
@@ -127,7 +112,7 @@ export default async function SettingsPage() {
                   <div
                     key={section}
                     className={`rounded-[3px] px-3 py-2 text-sm ${
-                      section === 'Integrations' ? 'bg-[#1f2c25] text-[#53dca4]' : 'text-[#8d8f96]'
+                      section === 'Connection Health' ? 'bg-[#1f2c25] text-[#53dca4]' : 'text-[#8d8f96]'
                     }`}
                   >
                     {section}
@@ -138,32 +123,54 @@ export default async function SettingsPage() {
               <div className="space-y-8">
                 <section>
                   <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-white">Active Integrations</h2>
+                    <h2 className="text-lg font-semibold text-white">Connection Health</h2>
                     <span className="text-sm text-[#53dca4]">
                       {settings.integrations.length + (settings.repositoryConnection ? 1 : 0)} configured
                     </span>
                   </div>
-                  <div className="space-y-3">
-                    {activeIntegrations.map(({ name, subtitle, state, action, href }) => (
-                      <div key={name} className="flex items-center justify-between rounded-[4px] border border-white/6 bg-[#17181d] px-5 py-4">
-                        <div>
-                          <div className="font-medium text-white">{name}</div>
-                          <div className="mt-1 text-sm text-[#6f7178]">{subtitle}</div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className={`rounded-[3px] px-3 py-1 text-[11px] font-semibold ${state === 'READY' || state === 'CONNECTED' ? 'bg-[#1f2c25] text-[#53dca4]' : 'bg-[#3c2f17] text-[#ffb24a]'}`}>{state}</span>
-                          <Link href={href} className="rounded-[3px] bg-[#27292f] px-3 py-1.5 text-xs text-[#c9cacf]">
-                            {action}
-                          </Link>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="grid gap-5 xl:grid-cols-2">
+                    <RepositoryHealthCard connection={settings.repositoryConnection} />
+                    {bootstrap.project ? <IntegrationHealthCards projectId={bootstrap.project.id} integrations={settings.integrations} /> : null}
                   </div>
                 </section>
 
                 <section>
                   <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-white">Environment Variables</h2>
+                    <h2 className="text-lg font-semibold text-white">AI / Runtime</h2>
+                    <Link href="/docs/concepts/settings-and-integrations" className="text-sm text-[#53dca4] hover:text-[#7be8bb]">
+                      What these settings mean
+                    </Link>
+                  </div>
+                  <div className="grid gap-5 xl:grid-cols-2">
+                    <AiSettingsCard organizationId={bootstrap.organization?.id} projectId={bootstrap.project?.id} ai={settings.ai} />
+                  </div>
+                </section>
+
+                <section>
+                  <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-white">Integrations</h2>
+                    <Link href="/docs/concepts/settings-and-integrations" className="text-sm text-[#53dca4] hover:text-[#7be8bb]">
+                      Connection states explained
+                    </Link>
+                  </div>
+                  {bootstrap.project ? <IntegrationSecretsCard projectId={bootstrap.project.id} integrations={settings.integrations} /> : null}
+                </section>
+
+                <section>
+                  <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-white">Auth / OAuth</h2>
+                    <Link href="/docs/env-setup" className="text-sm text-[#53dca4] hover:text-[#7be8bb]">
+                      Credential setup guide
+                    </Link>
+                  </div>
+                  <div className="grid gap-5 xl:grid-cols-2">
+                    <OAuthSettingsCard oauth={settings.oauth} />
+                  </div>
+                </section>
+
+                <section className="space-y-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-white">Advanced</h2>
                     <button className="rounded-[3px] bg-[#1b1c21] px-3 py-1.5 text-xs text-white">+ New Variable</button>
                   </div>
                   <div className="overflow-hidden rounded-[4px] border border-white/6 bg-[#17181d]">
@@ -180,21 +187,14 @@ export default async function SettingsPage() {
                       </div>
                     ))}
                   </div>
+                  <div className="rounded-[4px] border border-[#5a2424] bg-[#1a1113] p-6">
+                    <div className="text-lg font-semibold text-[#ff8780]">Dangerous Zone</div>
+                    <p className="mt-2 max-w-[36rem] text-sm leading-6 text-[#9c7c7c]">
+                      Permanently delete this project and all associated agent test data. This action is irreversible.
+                    </p>
+                    <button className="mt-4 rounded-[3px] bg-[#7b2d2d] px-4 py-2 text-sm font-semibold text-white">Delete Project</button>
+                  </div>
                 </section>
-
-                <section className="rounded-[4px] border border-[#5a2424] bg-[#1a1113] p-6">
-                  <div className="text-lg font-semibold text-[#ff8780]">Dangerous Zone</div>
-                  <p className="mt-2 max-w-[36rem] text-sm leading-6 text-[#9c7c7c]">
-                    Permanently delete this project and all associated agent test data. This action is irreversible.
-                  </p>
-                  <button className="mt-4 rounded-[3px] bg-[#7b2d2d] px-4 py-2 text-sm font-semibold text-white">Delete Project</button>
-                </section>
-
-                <section className="grid gap-5 xl:grid-cols-2">
-                  <OAuthSettingsCard oauth={settings.oauth} />
-                  <AiSettingsCard organizationId={bootstrap.organization?.id} projectId={bootstrap.project?.id} ai={settings.ai} />
-                </section>
-                {bootstrap.project ? <IntegrationSecretsCard projectId={bootstrap.project.id} integrations={settings.integrations} /> : null}
               </div>
             </div>
           </div>

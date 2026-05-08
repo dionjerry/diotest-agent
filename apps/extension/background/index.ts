@@ -110,11 +110,11 @@ async function testDioTestConnection(apiBaseUrl: string, apiKey: string) {
   const trimmedKey = apiKey.trim();
 
   if (!normalizedUrl) {
-    return { ok: false as const, error: "API Base URL is required." };
+    return { ok: false as const, error: "Add the project API Base URL from onboarding Step 5 before testing the connection." };
   }
 
   if (!trimmedKey) {
-    return { ok: false as const, error: "API Key is required." };
+    return { ok: false as const, error: "Add the project API Key from onboarding Step 5 before testing the connection." };
   }
 
   try {
@@ -135,7 +135,7 @@ async function testDioTestConnection(apiBaseUrl: string, apiKey: string) {
 
     return {
       ok: true as const,
-      message: "Connection verified."
+      message: "Saved locally and verified against the DioTest app."
     };
   } catch (error) {
     return {

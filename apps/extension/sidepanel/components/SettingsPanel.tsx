@@ -327,7 +327,7 @@ export function SettingsPanel({ settings, onSaved }: Props) {
       {/* DioTest Connection */}
       <div className="settings-section">
         <div className="settings-section-title">DioTest Connection</div>
-        <Field label="API Base URL" hint="Format: https://app.ngrok.io/ORG_SLUG/PROJECT_ID">
+        <Field label="API Base URL" hint="Use the exact Step 5 project URL, for example https://app.ngrok.io/your-org/your-project-id">
           <Input
             type="text"
             value={draft.connection.diotestApiUrl}
@@ -335,7 +335,7 @@ export function SettingsPanel({ settings, onSaved }: Props) {
             placeholder="https://app.ngrok.io/my-org/proj-123"
           />
         </Field>
-        <Field label="API Key" hint="Copy from onboarding Step 5">
+        <Field label="API Key" hint="Copy the project-scoped key from onboarding Step 5">
           <Input
             type="password"
             value={draft.connection.diotestApiKey}
@@ -358,7 +358,7 @@ export function SettingsPanel({ settings, onSaved }: Props) {
           </div>
         ) : (
           <div className="field-hint">
-            Save these fields first, then test the connection against the DioTest app.
+            Save these fields locally in the extension, then run Test Connection to verify them against the DioTest app.
           </div>
         )}
       </div>
