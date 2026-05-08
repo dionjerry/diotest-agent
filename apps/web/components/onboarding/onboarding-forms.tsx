@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useMemo, useState } from 'react';
+import { useActionState, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -16,10 +16,35 @@ import { IntegrationModal, type IntegrationProvider } from '@/components/integra
 import { FormMessage } from '@/components/forms/form-message';
 import { SubmitButton } from '@/components/forms/submit-button';
 import type { BootstrapResponse } from '@/lib/api';
+import type { BranchCandidate, RepositoryCandidate } from '@/lib/repository-provider-api';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
+import * as S from '@/components/onboarding/styles';
+import { ExtensionInstallModal } from '@/components/onboarding/extension-install-modal';
 
 const initialState: ActionState = {};
+
+const INTEGRATIONS = [
+  { key: 'JIRA' as IntegrationProvider, name: 'Jira', copy: 'Issue Management', icon: 'J', iconBg: 'bg-[#0052CC]' },
+  { key: 'TRELLO' as IntegrationProvider, name: 'Trello', copy: 'Agile Board Sync', icon: 'T', iconBg: 'bg-[#0052CC]' },
+  { key: 'GOOGLE_SHEETS' as IntegrationProvider, name: 'Google Sheets', copy: 'Ticket Export Table', icon: 'G', iconBg: 'bg-[#0F9D58]' },
+] as const;
+
+const COMING_SOON = [
+  { key: 'slack', name: 'Slack', copy: 'Notifications & Alerts' },
+  { key: 'linear', name: 'Linear', copy: 'Streamlined Issues' },
+] as const;
+
+const PROVIDER_OPTIONS = [
+  ['GITHUB', 'GitHub', 'GitHub App install, repository selection, and automatic webhook setup.'],
+  ['GITLAB', 'GitLab', 'GitLab OAuth plus a project/group token for webhook provisioning.'],
+] as const;
+
+const EXTENSION_INSTALL_OPTIONS = [
+  { store: 'Chrome Web Store', label: 'Install for Chrome', ariaLabel: 'Install DioTest Recorder extension for Chrome' },
+  { store: 'Firefox Add-ons', label: 'Install for Firefox', ariaLabel: 'Install DioTest Recorder extension for Firefox' },
+] as const;
 
 function FooterBar({
   backHref,
@@ -31,41 +56,43 @@ function FooterBar({
   backHref?: string;
   stepLabel: string;
   skipHref?: string;
-  submitIdleLabel: string;
-  submitPendingLabel: string;
+  submitIdleLabel?: string;
+  submitPendingLabel?: string;
 }) {
   return (
     <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-white/6 px-2 pt-6">
       <div className="flex items-center gap-6 text-sm text-[#8c8f97]">
         {backHref ? (
-          <Link href={backHref} className="inline-flex items-center gap-2 text-[#a0a3ab] transition hover:text-white">
+          <Link href={backHref} className={S.backLink}>
             <span aria-hidden="true">←</span>
             <span>Back</span>
           </Link>
-        ) : (
-          <span />
-        )}
-        <span className="text-xs uppercase tracking-[0.12em] text-[#676973]">{stepLabel}</span>
-      </div>
-      <div className="flex items-center gap-4">
-        {skipHref ? (
-          <Link href={skipHref} className="text-sm text-[#9a9da5] transition hover:text-white">
-            Skip for now
-          </Link>
         ) : null}
-        <SubmitButton
-          idleLabel={submitIdleLabel}
-          pendingLabel={submitPendingLabel}
-          className="h-12 rounded-[8px] bg-[#53dca4] px-6 text-sm font-semibold text-[#063523] hover:bg-[#66e6b1] disabled:cursor-not-allowed disabled:bg-[#214e3d] disabled:text-[#5f8e77]"
-        />
+        <span className={S.stepLabel}>{stepLabel}</span>
       </div>
+      {(submitIdleLabel || skipHref) ? (
+        <div className="flex items-center gap-4">
+          {skipHref ? (
+            <Link href={skipHref} className={S.skipLink}>
+              Skip for now
+            </Link>
+          ) : null}
+          {submitIdleLabel && submitPendingLabel ? (
+            <SubmitButton
+              idleLabel={submitIdleLabel}
+              pendingLabel={submitPendingLabel}
+              className={S.submitBtn}
+            />
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function InfoChip({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-[8px] border border-white/6 bg-[#17181d] px-4 py-3 text-sm text-[#b6b8bf]">
+    <div className={cn(S.panelSurface, 'px-4 py-3 text-sm text-[#b6b8bf]')}>
       {children}
     </div>
   );
@@ -78,16 +105,23 @@ export function OrganizationStepForm({ suggestedSlug }: { suggestedSlug: string 
     <form action={formAction}>
       <div className="space-y-6">
         <div>
-          <div className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8f929b]">Organization name</div>
-          <Input name="name" placeholder="DioTest Labs" required className="h-12 rounded-[8px] border-white/6 bg-[#131419]" />
+          <div className={S.fieldLabel}>Organization name</div>
+          <Input
+            name="name"
+            placeholder="DioTest Labs"
+            required
+            aria-label="Organization name"
+            className={S.inputField}
+          />
         </div>
         <div>
-          <div className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8f929b]">Organization slug</div>
+          <div className={S.fieldLabel}>Organization slug</div>
           <Input
             name="slug"
             defaultValue={suggestedSlug}
             placeholder="diotest-labs"
-            className="h-12 rounded-[8px] border-white/6 bg-[#131419]"
+            aria-label="Organization slug"
+            className={S.inputField}
           />
         </div>
         <InfoChip>
@@ -112,19 +146,20 @@ export function ProjectStepForm({ organizationId }: { organizationId: string }) 
       <input type="hidden" name="organizationId" value={organizationId} />
       <div className="space-y-6">
         <div>
-          <div className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8f929b]">Project name</div>
-          <Input name="name" placeholder="Alpha Core" required className="h-12 rounded-[8px] border-white/6 bg-[#131419]" />
+          <div className={S.fieldLabel}>Project name</div>
+          <Input name="name" placeholder="Alpha Core" required aria-label="Project name" className={S.inputField} />
         </div>
         <div>
-          <div className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8f929b]">Project slug</div>
-          <Input name="slug" placeholder="alpha-core" className="h-12 rounded-[8px] border-white/6 bg-[#131419]" />
+          <div className={S.fieldLabel}>Project slug</div>
+          <Input name="slug" placeholder="alpha-core" aria-label="Project slug" className={S.inputField} />
         </div>
         <div>
-          <div className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8f929b]">Description</div>
+          <div className={S.fieldLabel}>Description</div>
           <Textarea
             name="description"
             placeholder="Extension-first PR analysis and recorder workflows."
-            className="min-h-28 rounded-[8px] border-white/6 bg-[#131419]"
+            aria-label="Description"
+            className={S.textareaField}
           />
         </div>
         <FormMessage>{state.error}</FormMessage>
@@ -149,41 +184,28 @@ export function SetupStepForm({
   integrations?: BootstrapResponse['integrations'];
 }) {
   const [state, formAction] = useActionState(completeSetupAction, initialState);
-  const normalizedExisting = useMemo(
-    () => new Set(integrations.filter((i) => i.hasStoredSecret).map((i) => i.type.toUpperCase())),
-    [integrations],
-  );
   const integrationsByType = useMemo(
     () => Object.fromEntries(integrations.map((i) => [i.type, i])),
     [integrations],
   ) as Record<string, BootstrapResponse['integrations'][number] | undefined>;
   const router = useRouter();
 
-  const [connected, setConnected] = useState<Record<string, boolean>>({
-    JIRA: normalizedExisting.has('JIRA'),
-    TRELLO: normalizedExisting.has('TRELLO'),
-    GOOGLE_SHEETS: normalizedExisting.has('GOOGLE_SHEETS'),
-  });
+  const [connected, setConnected] = useState(() => ({
+    JIRA: integrations.some((i) => i.type.toUpperCase() === 'JIRA' && i.hasStoredSecret),
+    TRELLO: integrations.some((i) => i.type.toUpperCase() === 'TRELLO' && i.hasStoredSecret),
+    GOOGLE_SHEETS: integrations.some((i) => i.type.toUpperCase() === 'GOOGLE_SHEETS' && i.hasStoredSecret),
+  }));
 
-  // Which modal is open
   const [openModal, setOpenModal] = useState<IntegrationProvider | null>(null);
 
-  function handleModalSaved(provider: IntegrationProvider) {
-    setConnected((prev) => ({ ...prev, [provider]: true }));
-    setOpenModal(null);
-    router.refresh();
-  }
-
-  const INTEGRATIONS = [
-    { key: 'JIRA' as IntegrationProvider, name: 'Jira', copy: 'Issue Management', icon: 'J', iconBg: 'bg-[#0052CC]' },
-    { key: 'TRELLO' as IntegrationProvider, name: 'Trello', copy: 'Agile Board Sync', icon: 'T', iconBg: 'bg-[#0052CC]' },
-    { key: 'GOOGLE_SHEETS' as IntegrationProvider, name: 'Google Sheets', copy: 'Ticket Export Table', icon: 'G', iconBg: 'bg-[#0F9D58]' },
-  ] as const;
-
-  const COMING_SOON = [
-    { key: 'slack', name: 'Slack', copy: 'Notifications & Alerts' },
-    { key: 'linear', name: 'Linear', copy: 'Streamlined Issues' },
-  ] as const;
+  const handleModalSaved = useCallback(
+    (provider: IntegrationProvider) => {
+      setConnected((prev) => ({ ...prev, [provider]: true }));
+      setOpenModal(null);
+      router.refresh();
+    },
+    [router],
+  );
 
   return (
     <form action={formAction}>
@@ -196,17 +218,16 @@ export function SetupStepForm({
       <input type="hidden" name="sheetsName" value={connected.GOOGLE_SHEETS ? 'Google Sheets' : ''} />
 
       <div className="space-y-4">
-        {/* Active integrations */}
-        <div className="grid gap-3 md:grid-cols-1">
+        <div className="space-y-3">
           {INTEGRATIONS.map((integration) => {
             const isConnected = connected[integration.key];
-            const existingConfig = integrationsByType[integration.key]?.configJson as Record<string, string> | undefined;
             return (
               <div
                 key={integration.key}
-                className={`flex items-center justify-between rounded-[8px] border px-5 py-4 transition ${
-                  isConnected ? 'border-[#2f6d55] bg-[#131a17]' : 'border-white/6 bg-[#1a1b20]'
-                }`}
+                className={cn(
+                  'flex items-center justify-between rounded-[8px] border px-5 py-4 transition',
+                  isConnected ? S.selectedCard : 'border-white/6 bg-[#1a1b20]',
+                )}
               >
                 <div className="flex items-center gap-4">
                   <div className={`flex h-10 w-10 items-center justify-center rounded-[8px] ${integration.iconBg} text-sm font-bold text-white`}>
@@ -214,24 +235,26 @@ export function SetupStepForm({
                   </div>
                   <div>
                     <div className="text-[1rem] font-semibold text-white">{integration.name}</div>
-                    <div className="text-sm text-[#7f828a]">{integration.copy}</div>
+                    <div className={cn('text-sm', S.bodyMuted)}>{integration.copy}</div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-3">
                   {isConnected ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-[6px] bg-[#123224] px-3 py-1.5 text-xs font-semibold text-[#53dca4]">
-                      <span>✓</span> Connected
+                    <span className={S.accentBadge}>
+                      <span aria-hidden="true">✓</span> Connected
                     </span>
                   ) : null}
                   <button
                     type="button"
                     onClick={() => setOpenModal(integration.key)}
-                    className={`rounded-[6px] px-4 py-2 text-sm font-semibold transition ${
+                    aria-label={`${isConnected ? 'Reconfigure' : 'Configure'} ${integration.name}`}
+                    className={cn(
+                      'rounded-[6px] px-4 py-2 text-sm font-semibold transition',
                       isConnected
                         ? 'border border-white/8 text-[#9a9da5] hover:border-white/20 hover:text-white'
-                        : 'bg-[#1e3d31] text-[#53dca4] hover:bg-[#243f35]'
-                    }`}
+                        : 'bg-[#1e3d31] text-[#53dca4] hover:bg-[#243f35]',
+                    )}
                   >
                     {isConnected ? 'Reconfigure' : 'Configure →'}
                   </button>
@@ -241,9 +264,8 @@ export function SetupStepForm({
           })}
         </div>
 
-        {/* Coming soon */}
         <div className="grid gap-3 md:grid-cols-2">
-            {COMING_SOON.map((item) => (
+          {COMING_SOON.map((item) => (
             <div key={item.key} className="flex items-center justify-between rounded-[8px] border border-white/6 bg-[#16171b] px-5 py-4 opacity-60">
               <div className="flex items-center gap-4">
                 <div className="flex h-10 w-10 items-center justify-center rounded-[8px] border border-white/8 bg-[#24262b] text-sm text-white/60">
@@ -251,7 +273,7 @@ export function SetupStepForm({
                 </div>
                 <div>
                   <div className="text-[1rem] font-semibold text-white">{item.name}</div>
-                  <div className="text-sm text-[#7f828a]">{item.copy}</div>
+                  <div className={cn('text-sm', S.bodyMuted)}>{item.copy}</div>
                 </div>
               </div>
               <span className="rounded-[6px] bg-white/6 px-3 py-1.5 text-xs font-semibold text-[#8c9098]">Coming Soon</span>
@@ -261,8 +283,8 @@ export function SetupStepForm({
 
         <div className="rounded-[8px] border border-white/6 bg-[#141519] px-5 py-4">
           <div className="flex items-start gap-3">
-            <span className="mt-0.5 text-[#ebb04e]">ⓘ</span>
-            <div className="text-sm leading-7 text-[#7f828a]">
+            <span aria-hidden="true" className="mt-0.5 text-[#ebb04e]">ⓘ</span>
+            <div className={cn('text-sm leading-7', S.bodyMuted)}>
               Click <strong className="text-white">Configure →</strong> on any integration to enter credentials, test the live connection, optionally create a sample record, and save the connection before continuing.
             </div>
           </div>
@@ -274,12 +296,11 @@ export function SetupStepForm({
       <FooterBar
         backHref="/onboarding"
         stepLabel="Step 3 of 6: System Integrations"
-        skipHref="/onboarding?stage=repository"
+        skipHref="/onboarding?stage=repository&skip=integrations"
         submitIdleLabel="Continue to Step 4"
         submitPendingLabel="Saving integrations..."
       />
 
-      {/* Modals */}
       {openModal ? (
         <IntegrationModal
           projectId={projectId}
@@ -293,24 +314,6 @@ export function SetupStepForm({
     </form>
   );
 }
-
-type RepositoryCandidate = {
-  provider: 'GITHUB' | 'GITLAB';
-  externalId: string;
-  owner: string;
-  namespace?: string;
-  repositoryName: string;
-  fullName: string;
-  repositoryUrl: string;
-  defaultBranch: string;
-  installationId?: string;
-  providerUser?: string;
-};
-
-type BranchCandidate = {
-  name: string;
-  isDefault: boolean;
-};
 
 function toRepositoryCandidate(connection: BootstrapResponse['repositoryConnection']): RepositoryCandidate | null {
   if (!connection) return null;
@@ -329,12 +332,22 @@ function toRepositoryCandidate(connection: BootstrapResponse['repositoryConnecti
   };
 }
 
+export type RepositoryRouteError = {
+  code: string;
+  title: string;
+  message: string;
+  hint?: string;
+  provider?: 'GITHUB' | 'GITLAB';
+};
+
 export function RepositoryStepForm({
   projectId,
   existingConnection,
+  routeError,
 }: {
   projectId: string;
   existingConnection?: BootstrapResponse['repositoryConnection'];
+  routeError?: RepositoryRouteError | null;
 }) {
   const [state, formAction] = useActionState(saveRepositoryConnectionAction, initialState);
   const existingCandidate = useMemo(() => toRepositoryCandidate(existingConnection ?? null), [existingConnection]);
@@ -350,10 +363,16 @@ export function RepositoryStepForm({
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [branchError, setBranchError] = useState<string>();
 
+  // Excludes existingCandidate to prevent identity churn after the repo-list fetch
+  // from triggering a spurious second branch fetch.
   const selectedRepository = useMemo(
-    () => repositories.find((repo) => repo.externalId === selectedRepositoryId) ?? existingCandidate ?? null,
-    [existingCandidate, repositories, selectedRepositoryId],
+    () => repositories.find((repo) => repo.externalId === selectedRepositoryId) ?? null,
+    [repositories, selectedRepositoryId],
   );
+
+  const providerLabel = provider === 'GITHUB' ? 'GitHub' : 'GitLab';
+  const providerSlug = provider === 'GITHUB' ? 'github' : 'gitlab';
+  const repoNoun = provider === 'GITHUB' ? 'repositories' : 'projects';
 
   useEffect(() => {
     let cancelled = false;
@@ -413,6 +432,7 @@ export function RepositoryStepForm({
 
     const repository = selectedRepository;
     let cancelled = false;
+
     async function loadBranches() {
       setLoadingBranches(true);
       setBranchError(undefined);
@@ -451,7 +471,7 @@ export function RepositoryStepForm({
       } catch (error) {
         if (cancelled) return;
         setBranches([{ name: repository.defaultBranch, isDefault: true }]);
-        setSelectedBranch(repository.defaultBranch);
+        setSelectedBranch((prev) => (prev === repository.defaultBranch ? prev : repository.defaultBranch));
         setBranchError(error instanceof Error ? error.message : 'Unable to load branches.');
       } finally {
         if (!cancelled) setLoadingBranches(false);
@@ -465,8 +485,17 @@ export function RepositoryStepForm({
     };
   }, [projectId, provider, selectedRepository]);
 
+  function repoStatusText() {
+    if (loadingRepositories) return `Loading ${repoNoun}...`;
+    if (repositoryError) return repositoryError;
+    if (repositories.length) return `${repositories.length} ${repoNoun} available for selection.`;
+    return `No ${repoNoun} available yet. Connect the provider first.`;
+  }
+
   return (
     <form action={formAction}>
+      {/* Required by server — populated programmatically from selection UI.
+          Native HTML required validation is not applicable to hidden inputs. */}
       <input type="hidden" name="projectId" value={projectId} />
       <input type="hidden" name="provider" value={provider} />
       <input type="hidden" name="externalId" value={selectedRepository?.externalId ?? ''} />
@@ -475,59 +504,79 @@ export function RepositoryStepForm({
       <input type="hidden" name="repositoryName" value={selectedRepository?.repositoryName ?? ''} />
       <input type="hidden" name="fullName" value={selectedRepository?.fullName ?? ''} />
       <input type="hidden" name="repositoryUrl" value={selectedRepository?.repositoryUrl ?? ''} />
+      {routeError ? (
+        <div className="mb-6 rounded-[8px] border border-[#5f2a2a] bg-[#1e1313] px-5 py-4">
+          <div className="text-sm font-semibold text-[#f87171]">{routeError.title}</div>
+          <div className="mt-1 text-sm text-[#c4a0a0]">{routeError.message}</div>
+          {routeError.hint ? (
+            <div className="mt-2 text-xs text-[#9a7070]">Hint: {routeError.hint}</div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="space-y-5">
         <div className="grid gap-3 md:grid-cols-2">
-          {([
-            ['GITHUB', 'GitHub', 'GitHub App install, repository selection, and automatic webhook setup.'],
-            ['GITLAB', 'GitLab', 'GitLab OAuth plus a project/group token for webhook provisioning.'],
-          ] as const).map(([value, label, copy]) => (
+          {PROVIDER_OPTIONS.map(([value, label, copy]) => (
             <button
               key={value}
               type="button"
               onClick={() => setProvider(value)}
-              className={`rounded-[8px] border px-5 py-4 text-left transition ${
-                provider === value ? 'border-[#2f6d55] bg-[#131a17]' : 'border-white/6 bg-[#17181d] hover:bg-[#1b1c21]'
-              }`}
+              aria-label={`Select ${label} as repository provider`}
+              className={cn(
+                'rounded-[8px] border px-5 py-4 text-left transition',
+                provider === value ? S.selectedCard : 'border-white/6 bg-[#17181d] hover:bg-[#1b1c21]',
+              )}
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="text-lg font-semibold text-white">{label}</div>
-                <div className={`rounded-[6px] px-3 py-1 text-xs font-semibold ${provider === value ? 'bg-[#123224] text-[#53dca4]' : 'bg-white/6 text-[#9ca0a8]'}`}>
+                <div className={cn(
+                  'rounded-[6px] px-3 py-1 text-xs font-semibold',
+                  provider === value ? 'bg-[#123224] text-[#53dca4]' : 'bg-white/6 text-[#9ca0a8]',
+                )}>
                   {provider === value ? 'Selected' : 'Use'}
                 </div>
               </div>
-              <div className="mt-2 text-sm leading-6 text-[#7f828a]">{copy}</div>
+              <div className={cn('mt-2 text-sm leading-6', S.bodyMuted)}>{copy}</div>
             </button>
           ))}
         </div>
 
-        <div className="rounded-[8px] border border-white/6 bg-[#17181d] p-5">
+        <div className={cn(S.panelSurface, 'p-5')}>
+          {routeError ? (
+            <div className="mb-5 rounded-[8px] border border-[#6a4c19] bg-[#21180b] px-4 py-4">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 text-[#ffbf5a]">⚠</span>
+                <div>
+                  <div className="text-sm font-semibold text-[#ffd28a]">{routeError.title}</div>
+                  <div className="mt-1 text-sm leading-6 text-[#d6c09a]">{routeError.message}</div>
+                  {routeError.hint ? (
+                    <div className="mt-2 text-xs uppercase tracking-[0.12em] text-[#f0b65a]">{routeError.hint}</div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <div className="text-lg font-semibold text-white">
-                {provider === 'GITHUB' ? 'Connect GitHub App' : 'Connect GitLab'}
+                Connect {provider === 'GITHUB' ? 'GitHub App' : providerLabel}
               </div>
-              <div className="mt-1 text-sm leading-6 text-[#7f828a]">
+              <div className={cn('mt-1 text-sm leading-6', S.bodyMuted)}>
                 {provider === 'GITHUB'
                   ? 'Install or authorize the DioTest GitHub App, then choose the repository DioTest should monitor.'
                   : 'Authorize GitLab, then choose the project and provide a project/group token for webhook creation.'}
               </div>
             </div>
             <a
-              href={`/api/repositories/${provider === 'GITHUB' ? 'github' : 'gitlab'}/connect?projectId=${encodeURIComponent(projectId)}&returnTo=${encodeURIComponent('/onboarding?stage=repository')}`}
-              className="inline-flex h-11 items-center justify-center rounded-[8px] bg-[#1f4d3d] px-5 text-sm font-semibold text-[#86d4af] transition hover:bg-[#245b47]"
+              href={`/api/repositories/${providerSlug}/connect?projectId=${encodeURIComponent(projectId)}&returnTo=${encodeURIComponent('/onboarding?stage=repository')}`}
+              className={S.connectBtn}
             >
-              {existingConnection?.provider === provider ? 'Reconnect' : `Connect ${provider === 'GITHUB' ? 'GitHub' : 'GitLab'}`}
+              {existingConnection?.provider === provider ? 'Reconnect' : `Connect ${providerLabel}`}
             </a>
           </div>
 
           <div className="mt-5 rounded-[8px] border border-white/6 bg-[#131419] px-4 py-3 text-sm text-[#a6a9b0]">
-            {loadingRepositories
-              ? `Loading ${provider === 'GITHUB' ? 'repositories' : 'projects'}...`
-              : repositoryError
-                ? repositoryError
-                : repositories.length
-                  ? `${repositories.length} ${provider === 'GITHUB' ? 'repositories' : 'projects'} available for selection.`
-                  : `No ${provider === 'GITHUB' ? 'repositories' : 'projects'} available yet. Connect the provider first.`}
+            {repoStatusText()}
           </div>
 
           <div className="mt-5 grid gap-3">
@@ -536,9 +585,10 @@ export function RepositoryStepForm({
               return (
                 <label
                   key={`${repo.provider}:${repo.externalId}`}
-                  className={`flex cursor-pointer items-center justify-between rounded-[8px] border px-5 py-5 transition ${
-                    selected ? 'border-[#2f6d55] bg-[#1e2123]' : 'border-transparent bg-transparent hover:bg-[#1a1b20]'
-                  }`}
+                  className={cn(
+                    'flex cursor-pointer items-center justify-between rounded-[8px] border px-5 py-5 transition',
+                    selected ? 'border-[#2f6d55] bg-[#1e2123]' : 'border-transparent bg-transparent hover:bg-[#1a1b20]',
+                  )}
                 >
                   <div className="flex items-center gap-4">
                     <input
@@ -552,12 +602,15 @@ export function RepositoryStepForm({
                     <div className="text-white/60">{provider === 'GITHUB' ? '⌘' : '◆'}</div>
                     <div>
                       <div className="text-[1.05rem] font-semibold text-white">{repo.fullName}</div>
-                      <div className="text-sm text-[#72757d]">
-                        {repo.repositoryUrl.replace('https://', '').replace('http://', '')} • default branch {repo.defaultBranch}
+                      <div className={cn('text-sm', S.fieldHelperText)}>
+                        {repo.repositoryUrl.replace(/^https?:\/\//, '')} • default branch {repo.defaultBranch}
                       </div>
                     </div>
                   </div>
-                  <div className={`rounded-[4px] px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] ${selected ? 'bg-[#173c2e] text-[#79e6b7]' : 'bg-transparent text-[#c8cbd1]'}`}>
+                  <div className={cn(
+                    'rounded-[4px] px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em]',
+                    selected ? 'bg-[#173c2e] text-[#79e6b7]' : 'bg-transparent text-[#c8cbd1]',
+                  )}>
                     {selected ? 'Selected' : 'Choose'}
                   </div>
                 </label>
@@ -568,11 +621,12 @@ export function RepositoryStepForm({
 
         <div className="grid gap-4 md:grid-cols-2">
           <div>
-            <div className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8f929b]">Default branch</div>
+            <div className={S.fieldLabel}>Default branch</div>
             <select
               name="defaultBranch"
               value={selectedBranch}
               onChange={(event) => setSelectedBranch(event.target.value)}
+              aria-label="Default branch"
               className="h-12 w-full rounded-[8px] border border-white/6 bg-[#131419] px-4 text-sm text-white outline-none"
             >
               {branches.map((branch) => (
@@ -582,27 +636,28 @@ export function RepositoryStepForm({
                 </option>
               ))}
             </select>
-            <div className="mt-2 text-xs text-[#72757d]">
+            <div className={cn('mt-2 text-xs', S.fieldHelperText)}>
               {loadingBranches ? 'Loading live branches...' : branchError ? branchError : 'Fetched from the selected provider.'}
             </div>
           </div>
           {provider === 'GITLAB' ? (
             <div>
-              <div className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-[#8f929b]">GitLab project/group token</div>
+              <div className={S.fieldLabel}>GitLab project/group token</div>
               <Input
                 name="gitlabProjectToken"
                 type="password"
                 placeholder="Required for webhook provisioning"
-                className="h-12 rounded-[8px] border-white/6 bg-[#131419]"
+                aria-label="GitLab project/group token"
+                className={S.inputField}
               />
-              <div className="mt-2 text-xs leading-5 text-[#72757d]">
+              <div className={cn('mt-2 text-xs leading-5', S.fieldHelperText)}>
                 Leave blank to keep the stored token. DioTest stores this encrypted and uses it only for project webhook management.
               </div>
             </div>
           ) : (
-            <div className="rounded-[8px] border border-white/6 bg-[#17181d] px-5 py-4">
+            <div className={cn(S.panelSurface, 'px-5 py-4')}>
               <div className="text-sm font-semibold text-white">GitHub App installation</div>
-              <div className="mt-2 text-sm leading-6 text-[#7f828a]">
+              <div className={cn('mt-2 text-sm leading-6', S.bodyMuted)}>
                 Repository access and webhook creation happen through the installed GitHub App. No personal access token is required.
               </div>
             </div>
@@ -613,7 +668,7 @@ export function RepositoryStepForm({
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-lg font-semibold text-white">Automatic Webhook Configuration</div>
-              <div className="mt-1 text-sm leading-7 text-[#7f828a]">
+              <div className={cn('mt-1 text-sm leading-7', S.bodyMuted)}>
                 DioTest will reconcile the provider webhook as part of Save & Connect and store its health for onboarding and settings.
               </div>
             </div>
@@ -636,7 +691,7 @@ export function RepositoryStepForm({
       </div>
       <FooterBar
         backHref="/onboarding?stage=integrations"
-        skipHref="/onboarding?stage=extension"
+        skipHref="/onboarding?stage=extension&skip=repository"
         stepLabel="Step 4 of 6: Repository Connection"
         submitIdleLabel="Continue to Step 5"
         submitPendingLabel="Saving repository..."
@@ -645,9 +700,94 @@ export function RepositoryStepForm({
   );
 }
 
-export function ExtensionSetupStep() {
+export function ExtensionSetupStep({
+  projectId,
+  organizationSlug,
+  initialApiKey,
+}: {
+  projectId: string;
+  organizationSlug: string;
+  initialApiKey: string;
+}) {
+  const [extensionInstalled, setExtensionInstalled] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [copied, setCopied] = useState<'url' | 'key' | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedBrowser, setSelectedBrowser] = useState<'chrome' | 'firefox' | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const apiBaseUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/${organizationSlug}/${projectId}`
+    : '';
+
+  const handleInstallClick = async (browser: 'chrome' | 'firefox') => {
+    setDownloading(true);
+    try {
+      const response = await fetch(`/api/extension/download?format=${browser}`);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `diotest-extension-${browser}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      setSelectedBrowser(browser);
+      setModalOpen(true);
+    } catch (error) {
+      console.error('Failed to download extension:', error);
+      alert('Failed to download extension. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  useEffect(() => {
+    function onInstalled() {
+      setExtensionInstalled(true);
+    }
+    window.addEventListener('diotest:extension:installed', onInstalled);
+    window.dispatchEvent(new CustomEvent('diotest:page:ready'));
+    return () => window.removeEventListener('diotest:extension:installed', onInstalled);
+  }, []);
+
+  useEffect(() => {
+    if (!projectId || connected) return;
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/extension/status?projectId=${projectId}`);
+        const data = (await res.json()) as { ok: boolean; connected?: boolean };
+        if (data.connected) {
+          setConnected(true);
+          clearInterval(id);
+        }
+      } catch {
+        // Silently ignore polling errors
+      }
+    }, 3000);
+    return () => clearInterval(id);
+  }, [projectId, connected]);
+
+  const handleCopyUrl = () => {
+    navigator.clipboard.writeText(apiBaseUrl);
+    setCopied('url');
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  const handleCopyKey = () => {
+    navigator.clipboard.writeText(initialApiKey);
+    setCopied('key');
+    setTimeout(() => setCopied(null), 2000);
+  };
+
   return (
     <div>
+      <ExtensionInstallModal
+        isOpen={modalOpen}
+        browser={selectedBrowser}
+        onClose={() => setModalOpen(false)}
+      />
       <div className="rounded-[12px] border border-white/6 bg-[#1a1b20] p-10 shadow-[0_30px_90px_rgba(0,0,0,0.38)]">
         <div className="rounded-[8px] border border-white/5 bg-[#0f1013] px-8 py-12">
           <div className="mx-auto flex max-w-[280px] items-center justify-center gap-8">
@@ -667,37 +807,102 @@ export function ExtensionSetupStep() {
             The browser extension is the core of your automation workflow. It captures real UI interactions and
             transforms them into resilient, self-healing test scripts.
           </p>
-          <div className="mt-7 inline-flex rounded-full border border-[#5f4719] bg-[#1e1708] px-5 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#ebb04e]">
-            Waiting for extension detection...
+          <div
+            className={cn(
+              'mt-7 inline-flex rounded-full border px-5 py-2 text-xs font-semibold uppercase tracking-[0.2em]',
+              connected
+                ? 'border-[#2f6d55] bg-[#0f231b] text-[#53dca4]'
+                : 'border-[#5f4719] bg-[#1e1708] text-[#ebb04e]',
+            )}
+          >
+            {connected
+              ? '✓ Extension connected'
+              : extensionInstalled
+                ? 'Extension detected — waiting for first request...'
+                : 'Waiting for extension detection...'}
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2">
-            <button type="button" className="rounded-[8px] border border-white/6 bg-[#101114] px-5 py-5 text-left transition hover:bg-[#14161a]">
-              <div className="text-[10px] uppercase tracking-[0.14em] text-[#7f828a]">Chrome Web Store</div>
-              <div className="mt-1 text-xl font-semibold text-white">Install for Chrome</div>
-            </button>
-            <button type="button" className="rounded-[8px] border border-white/6 bg-[#101114] px-5 py-5 text-left transition hover:bg-[#14161a]">
-              <div className="text-[10px] uppercase tracking-[0.14em] text-[#7f828a]">Firefox Add-ons</div>
-              <div className="mt-1 text-xl font-semibold text-white">Install for Firefox</div>
-            </button>
+            {EXTENSION_INSTALL_OPTIONS.map(({ store, label, ariaLabel }) => {
+              const browser = store === 'Chrome Web Store' ? 'chrome' : 'firefox';
+              return (
+                <button
+                  key={store}
+                  type="button"
+                  onClick={() => handleInstallClick(browser)}
+                  disabled={downloading}
+                  aria-label={ariaLabel}
+                  className="rounded-[8px] border border-white/6 bg-[#101114] px-5 py-5 text-left transition hover:bg-[#14161a] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="text-[10px] uppercase tracking-[0.14em] text-[#7f828a]">{store}</div>
+                  <div className="mt-1 text-xl font-semibold text-white">
+                    {downloading ? 'Downloading...' : label}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className={cn(S.panelSurface, 'mt-6 px-5 py-4')}>
+            <div className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-white">
+              DioTest Connection
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className={cn('text-xs', S.bodyMuted)}>API Base URL</div>
+                  <div className="mt-0.5 font-mono text-sm text-white">{apiBaseUrl}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyUrl}
+                  className="rounded-[6px] bg-white/6 px-3 py-1.5 text-xs text-[#9a9da5] transition hover:text-white"
+                  aria-label="Copy API Base URL"
+                >
+                  {copied === 'url' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className={cn('text-xs', S.bodyMuted)}>API Key</div>
+                  <div className="mt-0.5 font-mono text-sm text-white">
+                    {initialApiKey ? `${initialApiKey.slice(0, 12)}••••••••` : '—'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyKey}
+                  className="rounded-[6px] bg-white/6 px-3 py-1.5 text-xs text-[#9a9da5] transition hover:text-white"
+                  aria-label="Copy API Key"
+                >
+                  {copied === 'key' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+            <p className={cn('mt-3 text-xs leading-5', S.bodyMuted)}>
+              Paste these into the extension&rsquo;s Settings panel → DioTest Connection, save the settings, then click Test Connection in the extension.
+            </p>
           </div>
         </div>
 
         <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-white/6 pt-6">
           <div className="flex items-center gap-6 text-sm text-[#8c8f97]">
-            <Link href="/onboarding?stage=repository" className="transition hover:text-white">
-              Back
+            <Link href="/onboarding?stage=repository" className={S.backLink}>
+              ← Back
             </Link>
-            <Link href="/onboarding?stage=finalize" className="transition hover:text-white">
+            <Link href="/onboarding?stage=finalize&skip=extension" className={S.skipLink}>
               Skip for now
             </Link>
           </div>
-          <Link
-            href="/onboarding?stage=finalize"
-            className="inline-flex h-12 items-center justify-center rounded-[8px] bg-[#1f4d3d] px-6 text-sm font-semibold text-[#6ca88d] transition hover:bg-[#245b47] hover:text-[#86d4af]"
-          >
-            Continue →
-          </Link>
+          {connected ? (
+            <Link href="/onboarding?stage=finalize" className={S.connectBtn}>
+              Continue →
+            </Link>
+          ) : (
+            <span className="inline-flex h-12 cursor-not-allowed items-center justify-center rounded-[8px] bg-[#1f4d3d]/40 px-6 text-sm font-semibold text-[#6ca88d]/50">
+              Continue →
+            </span>
+          )}
         </div>
       </div>
 
@@ -734,7 +939,7 @@ export function FinalReviewStep({
             ['Integrations', integrations.length ? integrations.join(', ') : 'Pending'],
             ['Repository', repository],
           ].map(([label, value]) => (
-            <div key={label} className="rounded-[8px] border border-white/6 bg-[#17181d] p-4">
+            <div key={label} className={cn(S.panelSurface, 'p-4')}>
               <div className="text-[10px] uppercase tracking-[0.14em] text-[#7b7e86]">{label}</div>
               <div className="mt-3 text-lg font-semibold text-white">{value}</div>
             </div>
@@ -742,7 +947,7 @@ export function FinalReviewStep({
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="rounded-[8px] border border-white/6 bg-[#17181d] p-6">
+          <div className={cn(S.panelSurface, 'p-6')}>
             <div className="mb-5 flex items-center justify-between gap-4 border-b border-white/6 pb-4">
               <div className="text-sm font-semibold uppercase tracking-[0.14em] text-white">Deployment Specification</div>
               <div className="rounded bg-[#123224] px-3 py-1 text-[10px] uppercase tracking-[0.12em] text-[#53dca4]">Production-Ready</div>
@@ -769,7 +974,7 @@ export function FinalReviewStep({
 
           <div className="space-y-5">
             <div className="rounded-[8px] border border-[#2f6d55] bg-[#22302b] p-6">
-              <div className="flex h-12 w-12 items-center justify-center rounded-[8px] bg-[#0d6b49]/30 text-xl text-[#53dca4]">↗</div>
+              <div aria-hidden="true" className="flex h-12 w-12 items-center justify-center rounded-[8px] bg-[#0d6b49]/30 text-xl text-[#53dca4]">↗</div>
               <div className="mt-5 text-[2rem] font-bold tracking-[-0.05em] text-white">Ready to Launch</div>
               <p className="mt-3 text-sm leading-7 text-[#c3c7cc]">
                 Your environment is fully validated. Upon initialization, DioTest will provision the resources and deploy the first agent swarm.
@@ -781,7 +986,7 @@ export function FinalReviewStep({
               />
             </div>
 
-            <div className="rounded-[8px] border border-white/6 bg-[#17181d] p-5">
+            <div className={cn(S.panelSurface, 'p-5')}>
               <div className="text-sm font-semibold text-[#ebb04e]">Post-Launch Note</div>
               <p className="mt-3 text-sm leading-7 text-[#9598a0]">
                 Once initialized, you will be redirected to the Activity Monitor where you can watch the agent deployment in real time.
@@ -791,15 +996,10 @@ export function FinalReviewStep({
         </div>
       </div>
 
-      <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-white/6 px-2 pt-6">
-        <div className="flex items-center gap-6 text-sm text-[#8c8f97]">
-          <Link href="/onboarding?stage=extension" className="inline-flex items-center gap-2 text-[#a0a3ab] transition hover:text-white">
-            <span aria-hidden="true">←</span>
-            <span>Back</span>
-          </Link>
-          <span className="text-xs uppercase tracking-[0.12em] text-[#676973]">Step 6 of 6: Review</span>
-        </div>
-      </div>
+      <FooterBar
+        backHref="/onboarding?stage=extension"
+        stepLabel="Step 6 of 6: Review"
+      />
     </form>
   );
 }

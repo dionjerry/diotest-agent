@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { env } from '@/lib/env';
 import { exchangeGitLabCode, fetchGitLabUser } from '@/lib/repository-provider-api';
 import { decodeCookieValue, encodeCookieValue, REPOSITORY_FLOW_COOKIES, type ProviderStateCookie } from '@/lib/repository-flow';
+import { buildRepositoryErrorRedirectPath, toSafeRepositoryErrorMessage } from '@/lib/repository-route-errors';
 import { logServerError, logServerEvent } from '@/lib/server-logger';
 
 export async function GET(request: NextRequest) {
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
 
   if (!storedState || !state || storedState.nonce !== state || !code) {
     logServerError('repository.gitlab.callback.failed', 'auth_error', { status: 'failed' });
-    return NextResponse.redirect(new URL(`${returnTo}&error=gitlab-callback`, request.url));
+    return NextResponse.redirect(new URL(buildRepositoryErrorRedirectPath(returnTo, 'gitlab-callback'), request.url));
   }
 
   try {
@@ -46,6 +47,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL(`${returnTo}${returnTo.includes('?') ? '&' : '?'}provider=gitlab`, request.url));
   } catch (error) {
     logServerError('repository.gitlab.callback.failed', 'provider_error', { status: 'failed', projectId: storedState.projectId }, error);
-    return NextResponse.redirect(new URL(`${returnTo}&error=gitlab-callback`, request.url));
+    return NextResponse.redirect(new URL(
+      buildRepositoryErrorRedirectPath(returnTo, 'gitlab-callback', toSafeRepositoryErrorMessage(error)),
+      request.url,
+    ));
   }
 }

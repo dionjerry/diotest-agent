@@ -101,6 +101,8 @@ export function SettingsPanel({ settings, onSaved }: Props) {
   const [draft, setDraft]       = useState<SettingsLatest>(settings);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved]         = useState(false);
+  const [connectionState, setConnectionState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const validation = useMemo(() => validateSettings(draft), [draft]);
 
   function set(path: string, value: number | boolean | string) {
@@ -109,6 +111,8 @@ export function SettingsPanel({ settings, onSaved }: Props) {
     (next as any)[a][b] = value;
     setDraft(next);
     setSaved(false);
+    setConnectionState("idle");
+    setConnectionMessage(null);
   }
 
   function setProvider(provider: SettingsLatest["analysis"]["provider"]) {
@@ -120,6 +124,8 @@ export function SettingsPanel({ settings, onSaved }: Props) {
     }
     setDraft(next);
     setSaved(false);
+    setConnectionState("idle");
+    setConnectionMessage(null);
   }
 
   async function save() {
@@ -138,6 +144,28 @@ export function SettingsPanel({ settings, onSaved }: Props) {
     setDraft(result.settings);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function testConnection() {
+    setConnectionState("loading");
+    setConnectionMessage(null);
+
+    const result = await sendMessage<{ ok: boolean; message?: string; error?: string }>({
+      type: "extension.connection.test",
+      payload: {
+        apiBaseUrl: draft.connection.diotestApiUrl,
+        apiKey: draft.connection.diotestApiKey
+      }
+    });
+
+    if (result.ok) {
+      setConnectionState("success");
+      setConnectionMessage(result.message || "Connection verified.");
+      return;
+    }
+
+    setConnectionState("error");
+    setConnectionMessage(result.error || "Connection failed.");
   }
 
   const prMaxFilesRange  = SETTING_RANGES["pr.maxFiles"];
@@ -294,6 +322,45 @@ export function SettingsPanel({ settings, onSaved }: Props) {
           checked={draft.safeMode.enabled}
           onChange={(v) => set("safeMode.enabled", v)}
         />
+      </div>
+
+      {/* DioTest Connection */}
+      <div className="settings-section">
+        <div className="settings-section-title">DioTest Connection</div>
+        <Field label="API Base URL" hint="Format: https://app.ngrok.io/ORG_SLUG/PROJECT_ID">
+          <Input
+            type="text"
+            value={draft.connection.diotestApiUrl}
+            onChange={(e) => set("connection.diotestApiUrl", e.target.value)}
+            placeholder="https://app.ngrok.io/my-org/proj-123"
+          />
+        </Field>
+        <Field label="API Key" hint="Copy from onboarding Step 5">
+          <Input
+            type="password"
+            value={draft.connection.diotestApiKey}
+            onChange={(e) => set("connection.diotestApiKey", e.target.value)}
+            placeholder="dto_..."
+          />
+        </Field>
+        <div className="settings-actions">
+          <Button
+            variant={connectionState === "success" ? "secondary" : "default"}
+            disabled={connectionState === "loading"}
+            onClick={() => void testConnection()}
+          >
+            {connectionState === "loading" ? "Testing..." : "Test Connection"}
+          </Button>
+        </div>
+        {connectionMessage ? (
+          <div className={connectionState === "success" ? "field-hint" : "field-error"}>
+            {connectionMessage}
+          </div>
+        ) : (
+          <div className="field-hint">
+            Save these fields first, then test the connection against the DioTest app.
+          </div>
+        )}
       </div>
 
       {/* Errors + actions */}

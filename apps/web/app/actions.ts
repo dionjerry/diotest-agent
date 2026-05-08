@@ -9,6 +9,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import {
+  AppApiError,
   approveAgentAction,
   createAgentAction,
   createOrganization,
@@ -24,6 +25,15 @@ import {
 import { auth, signIn, signOut } from '@/lib/auth';
 import { getPersistedIntegrationState, getIntegrationName, persistIntegrationConnection, type IntegrationType } from '@/lib/integration-connections';
 import { isSmtpConfigured, sendPasswordResetEmail } from '@/lib/mailer';
+import {
+  mergeStageProgress,
+  mergeOnboardingProgress,
+  ONBOARDING_COMPLETE_KEY,
+  ONBOARDING_PROGRESS_KEY,
+  parseOnboardingProgress,
+  type OnboardingProgress,
+  type OnboardingStage,
+} from '@/lib/onboarding-state';
 import { prisma } from '@/lib/prisma';
 import { reconcileGitHubWebhook, reconcileGitLabWebhook, type RepositoryProvider } from '@/lib/repository-provider-api';
 import { decodeCookieValue, REPOSITORY_FLOW_COOKIES, type GitHubInstallationCookie, type GitLabOAuthCookie } from '@/lib/repository-flow';
@@ -51,6 +61,40 @@ function readString(formData: FormData, key: string) {
 
 function readBoolean(formData: FormData, key: string) {
   return formData.get(key) === 'on' || formData.get(key) === 'true';
+}
+
+async function getProjectOnboardingProgress(projectId: string) {
+  const setting = await prisma.systemSetting.findFirst({
+    where: {
+      scope: 'PROJECT',
+      projectId,
+      key: ONBOARDING_PROGRESS_KEY,
+    },
+    select: {
+      value: true,
+    },
+  });
+
+  return parseOnboardingProgress(setting?.value);
+}
+
+async function persistProjectOnboardingProgress(projectId: string, patch: Partial<OnboardingProgress>) {
+  const current = await getProjectOnboardingProgress(projectId);
+  const next = mergeOnboardingProgress(current, {
+    ...patch,
+    lastVisitedStage: mergeStageProgress(current?.lastVisitedStage, patch.lastVisitedStage),
+  });
+
+  await saveSystemSetting({
+    scope: 'PROJECT',
+    projectId,
+    key: ONBOARDING_PROGRESS_KEY,
+    value: next,
+  });
+}
+
+async function setProjectOnboardingStage(projectId: string, stage: OnboardingStage) {
+  await persistProjectOnboardingProgress(projectId, { lastVisitedStage: stage });
 }
 
 export async function loginAction(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -260,20 +304,33 @@ export async function createOrganizationAction(_: ActionState, formData: FormDat
     return { error: 'Organization name is required.' };
   }
 
-  const created = await createOrganization({
-    userId: session.user.id,
-    name,
-    slug,
-  });
+  try {
+    const created = await createOrganization({
+      userId: session.user.id,
+      name,
+      slug,
+    });
 
-  logServerEvent('organization.created', {
-    status: 'success',
-    userId: session.user.id,
-    organizationId: created.organizationId,
-  });
-  revalidateAppData();
+    logServerEvent('organization.created', {
+      status: 'success',
+      userId: session.user.id,
+      organizationId: created.organizationId,
+    });
+    revalidateAppData();
 
-  redirect('/onboarding');
+    redirect('/onboarding?stage=project');
+  } catch (error) {
+    if (error instanceof AppApiError && error.code === 'request_failed') {
+      logServerError('organization.create.failed', 'validation_error', {
+        status: 'failed',
+        userId: session.user.id,
+        statusCode: error.statusCode,
+      });
+      return { error: error.message || 'Organization slug is already taken. Choose another one.' };
+    }
+
+    throw error;
+  }
 }
 
 export async function createProjectAction(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -288,14 +345,28 @@ export async function createProjectAction(_: ActionState, formData: FormData): P
     return { error: 'Project name is required.' };
   }
 
-  const created = await createProject({ organizationId, name, slug, description });
-  logServerEvent('project.created', {
-    status: 'success',
-    organizationId,
-    projectId: created.projectId,
-  });
-  revalidateAppData();
-  redirect('/onboarding');
+  try {
+    const created = await createProject({ organizationId, name, slug, description });
+    logServerEvent('project.created', {
+      status: 'success',
+      organizationId,
+      projectId: created.projectId,
+    });
+    await setProjectOnboardingStage(created.projectId, 'integrations');
+    revalidateAppData();
+    redirect('/onboarding?stage=integrations');
+  } catch (error) {
+    if (error instanceof AppApiError && error.code === 'request_failed') {
+      logServerError('project.create.failed', 'validation_error', {
+        status: 'failed',
+        organizationId,
+        statusCode: error.statusCode,
+      });
+      return { error: error.message || 'Project slug is already taken. Choose another one.' };
+    }
+
+    throw error;
+  }
 }
 
 export async function saveRepositoryConnectionAction(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -316,6 +387,22 @@ export async function saveRepositoryConnectionAction(_: ActionState, formData: F
   }
 
   const cookieStore = await cookies();
+
+  // Fetch project with organization to construct org-aware webhook URL
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: {
+      organization: {
+        select: { slug: true },
+      },
+    },
+  });
+
+  if (!project?.organization?.slug) {
+    logServerError('repository.connected.failed', 'validation_error', { status: 'failed', projectId, provider });
+    return { error: 'Project organization not found.' };
+  }
+
   let installationId: string | undefined;
   let providerUser: string | undefined;
   let webhookId: string | undefined;
@@ -331,7 +418,7 @@ export async function saveRepositoryConnectionAction(_: ActionState, formData: F
     }
 
     installationId = githubSession.installationId;
-    const callbackUrl = absoluteUrl('/api/repositories/webhooks/github');
+    const callbackUrl = absoluteUrl(`/${project.organization.slug}/${projectId}/webhooks/github`);
     const webhook = await reconcileGitHubWebhook(githubSession.installationId, owner, repositoryName, callbackUrl);
     webhookId = webhook.id;
     webhookStatus = webhook.status;
@@ -368,7 +455,7 @@ export async function saveRepositoryConnectionAction(_: ActionState, formData: F
       secretJson: gitlabProjectToken ? { projectToken: gitlabProjectToken } : undefined,
     });
 
-    const callbackUrl = absoluteUrl('/api/repositories/webhooks/gitlab');
+    const callbackUrl = absoluteUrl(`/${project.organization.slug}/${projectId}/webhooks/gitlab`);
     const webhook = await reconcileGitLabWebhook(projectToken, externalId, callbackUrl);
     webhookId = webhook.id;
     webhookStatus = webhook.status;
@@ -402,9 +489,10 @@ export async function saveRepositoryConnectionAction(_: ActionState, formData: F
     repositoryConnectionId: saved.repositoryConnectionId,
     webhookStatus,
   });
+  await setProjectOnboardingStage(projectId, 'extension');
   revalidateAppData();
 
-  redirect('/onboarding');
+  redirect('/onboarding?stage=extension');
 }
 
 export async function saveIntegrationConnectionAction(
@@ -505,9 +593,10 @@ export async function completeSetupAction(_: ActionState, formData: FormData): P
     projectId,
     integrationType: selectedIntegrations,
   });
+  await setProjectOnboardingStage(projectId, 'repository');
   revalidateAppData();
 
-  redirect('/onboarding?stage=finalize');
+  redirect('/onboarding?stage=repository');
 }
 
 
@@ -587,9 +676,10 @@ export async function finalizeOnboardingAction(_: ActionState, formData: FormDat
     await saveSystemSetting({
       scope: 'PROJECT',
       projectId,
-      key: 'onboarding_complete',
+      key: ONBOARDING_COMPLETE_KEY,
       value: { completedAt: new Date().toISOString() },
     });
+    await setProjectOnboardingStage(projectId, 'finalize');
     revalidateAppData();
   }
 

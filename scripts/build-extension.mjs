@@ -50,6 +50,7 @@ await build({
   platform: "browser",
   entryPoints: {
     "apps/extension/background/index": "apps/extension/background/index.ts",
+    "apps/extension/content/page-bridge": "apps/extension/content/page-bridge.ts",
     "apps/extension/content/pr-observer": "apps/extension/content/pr-observer.ts",
     "apps/extension/content/ui-recorder": "apps/extension/content/ui-recorder.ts",
     "apps/extension/sidepanel/main": "apps/extension/sidepanel/main.tsx",

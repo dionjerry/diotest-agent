@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { decodeCookieValue, encodeCookieValue, REPOSITORY_FLOW_COOKIES, type ProviderStateCookie } from '@/lib/repository-flow';
+import { buildRepositoryErrorRedirectPath } from '@/lib/repository-route-errors';
 import { logServerError, logServerEvent } from '@/lib/server-logger';
 
 export async function GET(request: NextRequest) {
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
 
   if (!storedState || !state || storedState.nonce !== state || !installationId) {
     logServerError('repository.github.callback.failed', 'auth_error', { status: 'failed' });
-    return NextResponse.redirect(new URL(`${returnTo}&error=github-callback`, request.url));
+    return NextResponse.redirect(new URL(buildRepositoryErrorRedirectPath(returnTo, 'github-callback'), request.url));
   }
 
   cookieStore.set(REPOSITORY_FLOW_COOKIES.githubInstallation, encodeCookieValue({

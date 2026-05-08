@@ -39,6 +39,21 @@ const PROVIDER_META: Record<IntegrationProvider, { label: string; description: s
 function JiraFields({ defaults }: { defaults?: Record<string, string> }) {
   return (
     <>
+      <details className="rounded-[8px] border border-[#2f6d55]/35 bg-[#0f2b22]/60 px-4 py-4 text-sm text-[#c7d9d1]">
+        <summary className="cursor-pointer list-none font-semibold text-white">
+          How to connect Jira
+        </summary>
+        <div className="mt-3 space-y-2 text-sm leading-6 text-[#9fc1b3]">
+          <div>1. Open your Jira site and confirm the base URL, for example <span className="font-mono text-white">https://your-team.atlassian.net</span>.</div>
+          <div>2. Find the Jira project key you want DioTest to use, for example <span className="font-mono text-white">DIO</span>.</div>
+          <div>3. Visit <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener noreferrer" className="text-[#86d4af] underline hover:text-white">Atlassian API tokens</a>.</div>
+          <div>4. Click <span className="font-semibold text-white">Create API token</span>, give it a label like <span className="font-semibold text-white">DioTest</span>, then copy the token.</div>
+          <div>5. Paste your Jira base URL, project key, Atlassian email, and API token below, then click <span className="font-semibold text-white">Test connection</span>.</div>
+        </div>
+        <div className="mt-3 rounded-[6px] border border-white/8 bg-[#111216] px-3 py-3 text-xs text-[#8a8d94]">
+          Optional: change <span className="text-white">Issue type</span> if you want DioTest to create something other than the default <span className="text-white">Task</span>.
+        </div>
+      </details>
       <FieldGroup label="Jira base URL" hint="e.g. https://your-team.atlassian.net">
         <input name="baseUrl" defaultValue={defaults?.baseUrl} placeholder="https://your-team.atlassian.net" className={inputCls} />
       </FieldGroup>
@@ -66,6 +81,21 @@ function JiraFields({ defaults }: { defaults?: Record<string, string> }) {
 function TrelloFields({ defaults }: { defaults?: Record<string, string> }) {
   return (
     <>
+      <details className="rounded-[8px] border border-[#2f6d55]/35 bg-[#0f2b22]/60 px-4 py-4 text-sm text-[#c7d9d1]">
+        <summary className="cursor-pointer list-none font-semibold text-white">
+          How to connect Trello
+        </summary>
+        <div className="mt-3 space-y-2 text-sm leading-6 text-[#9fc1b3]">
+          <div>1. Visit <a href="https://trello.com/app-key" target="_blank" rel="noopener noreferrer" className="text-[#86d4af] underline hover:text-white">trello.com/app-key</a>.</div>
+          <div>2. Create a Trello app there if needed, then copy the <span className="font-semibold text-white">API Key</span> from the API key page.</div>
+          <div>3. On the same page, generate a <span className="font-semibold text-white">Token</span> and approve access.</div>
+          <div>4. Copy your board ID from the board URL: <span className="font-mono text-white">trello.com/b/BOARD_ID/board-name</span>.</div>
+          <div>5. Paste the API key, token, and board ID below, then click <span className="font-semibold text-white">Test connection</span>.</div>
+        </div>
+        <div className="mt-3 rounded-[6px] border border-white/8 bg-[#111216] px-3 py-3 text-xs text-[#8a8d94]">
+          Optional: if you want cards created in a specific column, also paste the Trello list ID into <span className="text-white">Default list ID</span>.
+        </div>
+      </details>
       <FieldGroup label="Board ID" hint="From your board URL: trello.com/b/BOARD_ID/board-name">
         <input name="boardId" defaultValue={defaults?.boardId} placeholder="e.g. aBcDeF12" className={inputCls} />
       </FieldGroup>

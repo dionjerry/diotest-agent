@@ -5,6 +5,7 @@ import { auth } from '@/lib/auth';
 import { env } from '@/lib/env';
 import { buildGitLabAuthorizeUrl } from '@/lib/repository-provider-api';
 import { REPOSITORY_FLOW_COOKIES, createProviderState, encodeCookieValue } from '@/lib/repository-flow';
+import { buildRepositoryErrorRedirectPath, toSafeRepositoryErrorMessage } from '@/lib/repository-route-errors';
 import { logServerError, logServerEvent } from '@/lib/server-logger';
 
 export async function GET(request: NextRequest) {
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
   const returnTo = request.nextUrl.searchParams.get('returnTo')?.trim() || '/onboarding?stage=repository';
   if (!projectId) {
     logServerError('repository.gitlab.connect.failed', 'validation_error', { status: 'failed', userId: session.user.id });
-    return NextResponse.redirect(new URL(`${returnTo}&error=missing-project`, request.url));
+    return NextResponse.redirect(new URL(buildRepositoryErrorRedirectPath(returnTo, 'missing-project'), request.url));
   }
 
   try {
@@ -44,6 +45,9 @@ export async function GET(request: NextRequest) {
       userId: session.user.id,
       projectId,
     }, error);
-    return NextResponse.redirect(new URL(`${returnTo}&error=gitlab-connect`, request.url));
+    return NextResponse.redirect(new URL(
+      buildRepositoryErrorRedirectPath(returnTo, 'gitlab-connect', toSafeRepositoryErrorMessage(error)),
+      request.url,
+    ));
   }
 }

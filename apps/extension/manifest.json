@@ -14,6 +14,16 @@
       "matches": ["https://github.com/*/*/pull/*", "https://github.com/*/*/commit/*"],
       "js": ["content/pr-observer.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.ngrok-free.app/*",
+        "https://*.ngrok.io/*",
+        "http://localhost:3000/*",
+        "http://localhost:*/*"
+      ],
+      "js": ["content/page-bridge.js"],
+      "run_at": "document_idle"
     }
   ],
   "action": {

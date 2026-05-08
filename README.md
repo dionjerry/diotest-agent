@@ -139,6 +139,32 @@ Notes:
 - `pnpm lint` or `npm run lint`
 - `pnpm typecheck` or `npm run typecheck`
 
+## Environment Setup
+
+Use the repo-root `.env` file for local development.
+
+1. Copy [`.env.example`](.env.example) to `.env`
+2. Fill in the required values
+3. Restart the dev server after `.env` changes
+
+The full environment guide, including:
+
+- core app variables
+- SMTP setup
+- Google OAuth
+- GitHub App setup
+- GitLab OAuth setup
+- Trello and Jira integration credentials
+
+is documented in [docs/ENV_SETUP.md](docs/ENV_SETUP.md).
+
+For product-level explanations of onboarding steps and settings meaning, see [docs/concepts/README.md](docs/concepts/README.md).
+
+Current web onboarding also includes:
+
+- per-project repository webhook provisioning during Step 4
+- project-scoped extension connection during Step 5 using a generated API key plus extension ping/status verification
+
 ## v0.1 Constraints
 
 - Editable settings with hard ranges and validation
@@ -178,6 +204,10 @@ Near-term platform work after the MVP extension:
 - [Roadmap](docs/ROADMAP.md)
 - [Non-Goals](docs/NON_GOALS.md)
 - [Contributing](docs/CONTRIBUTING.md)
+- [Environment Setup](docs/ENV_SETUP.md)
+- [Concepts](docs/concepts/README.md)
+- [Repository Onboarding Concepts](docs/concepts/repository-onboarding.md)
+- [Settings And Integrations Concepts](docs/concepts/settings-and-integrations.md)
 
 ## UI Baseline
 

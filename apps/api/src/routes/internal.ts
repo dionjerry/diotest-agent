@@ -3,7 +3,15 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { prisma } from '../db.js';
+import { isPrismaUniqueConstraintError } from '../lib/errors.js';
 import { classifyError, logDebug, logError, logEvent } from '../lib/logging.js';
+
+const onboardingProgressSchema = z.object({
+  lastVisitedStage: z.enum(['organization', 'project', 'integrations', 'repository', 'extension', 'finalize']).optional(),
+  integrationsSkipped: z.boolean().optional(),
+  repositorySkipped: z.boolean().optional(),
+  extensionSkipped: z.boolean().optional(),
+});
 
 const organizationSchema = z.object({
   userId: z.string().min(1),
@@ -92,9 +100,25 @@ export async function registerInternalRoutes(app: FastifyInstance) {
         project: null,
         repositoryConnection: null,
         integrations: [],
+        onboardingComplete: false,
+        onboardingProgress: null,
       };
     }
     const project = membership.organization.projects[0] ?? null;
+    const projectSettings = project
+      ? await prisma.systemSetting.findMany({
+          where: {
+            scope: 'PROJECT',
+            projectId: project.id,
+            key: { in: ['onboarding_complete', 'onboarding_progress'] },
+          },
+        })
+      : [];
+    const onboardingComplete = projectSettings.some((setting) => setting.key === 'onboarding_complete');
+    const onboardingProgressSetting = projectSettings.find((setting) => setting.key === 'onboarding_progress');
+    const onboardingProgress = onboardingProgressSetting
+      ? onboardingProgressSchema.safeParse(onboardingProgressSetting.value).data ?? null
+      : null;
     const durationMs = Date.now() - startedAt;
     logEvent(request.log, 'bootstrap.loaded', {
       requestId: request.id,
@@ -160,6 +184,8 @@ export async function registerInternalRoutes(app: FastifyInstance) {
           (secret) => secret.key === `integration.${integration.type.toLowerCase()}`,
         ),
       })) ?? [],
+      onboardingComplete,
+      onboardingProgress,
     };
   });
 
@@ -198,6 +224,19 @@ export async function registerInternalRoutes(app: FastifyInstance) {
       reply.code(201);
       return { organizationId: organization.id };
     } catch (error) {
+      if (isPrismaUniqueConstraintError(error, 'slug')) {
+        const message = 'Organization slug is already taken. Choose another one.';
+        logError(
+          request.log,
+          'organization.create.failed',
+          'validation_error',
+          { requestId: request.id, status: 'failed', statusCode: 409 },
+          error,
+        );
+        reply.code(409);
+        throw new Error(message);
+      }
+
       logError(request.log, 'organization.create.failed', classifyError(error), { requestId: request.id, status: 'failed' }, error);
       throw error;
     }
@@ -234,6 +273,19 @@ export async function registerInternalRoutes(app: FastifyInstance) {
       reply.code(201);
       return { projectId: project.id };
     } catch (error) {
+      if (isPrismaUniqueConstraintError(error, 'slug')) {
+        const message = 'Project slug is already taken. Choose another one.';
+        logError(
+          request.log,
+          'project.create.failed',
+          'validation_error',
+          { requestId: request.id, status: 'failed', statusCode: 409 },
+          error,
+        );
+        reply.code(409);
+        throw new Error(message);
+      }
+
       logError(request.log, 'project.create.failed', classifyError(error), { requestId: request.id, status: 'failed' }, error);
       throw error;
     }

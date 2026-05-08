@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import Link from 'next/link';
 
 import {
@@ -6,22 +7,38 @@ import {
   OrganizationStepForm,
   ProjectStepForm,
   RepositoryStepForm,
+  type RepositoryRouteError,
   SetupStepForm,
 } from '@/components/onboarding/onboarding-forms';
 import { BackendUnavailable } from '@/components/system/backend-unavailable';
 import { requireOnboardingState } from '@/lib/guards';
-import { logServerEvent } from '@/lib/server-logger';
+import {
+  isOnboardingStage,
+  mergeOnboardingProgress,
+  mergeStageProgress,
+  ONBOARDING_PROGRESS_KEY,
+  onboardingStageOrder,
+  type OnboardingProgress,
+  type OnboardingStage,
+} from '@/lib/onboarding-state';
+import { saveSystemSetting } from '@/lib/api';
+import { decryptPayload, encryptPayload } from '@/lib/encryption';
+import { prisma } from '@/lib/prisma';
+import { logServerEvent, logServerDebug } from '@/lib/server-logger';
 import { slugify } from '@/lib/utils';
 
 type PageProps = {
   searchParams?: Promise<{
     stage?: string;
+    error?: string;
+    message?: string;
+    skip?: string;
   }>;
 };
 
-type StageKey = 'organization' | 'project' | 'integrations' | 'repository' | 'extension' | 'finalize';
+type StageKey = OnboardingStage;
 
-const stageOrder: StageKey[] = ['organization', 'project', 'integrations', 'repository', 'extension', 'finalize'];
+const stageOrder: StageKey[] = onboardingStageOrder;
 
 const stageMeta: Record<
   StageKey,
@@ -67,19 +84,198 @@ const sidebarLabels: Array<[StageKey, string]> = [
   ['finalize', 'Review & Launch'],
 ];
 
-function resolveStage(stage: string | undefined, hasOrg: boolean, hasProject: boolean, hasRepositoryConnection: boolean): StageKey {
-  if (!hasOrg) return 'organization';
-  if (!hasProject) return 'project';
-  if (!stage) return hasRepositoryConnection ? 'extension' : 'integrations';
+async function getOrCreateExtensionApiKey(projectId: string): Promise<string> {
+  const existing = await prisma.encryptedSecret.findFirst({
+    where: {
+      scope: 'PROJECT',
+      projectId,
+      key: 'extension.apiKey',
+    },
+  });
 
-  const requested = stage as StageKey;
-  if (!stageOrder.includes(requested)) return hasRepositoryConnection ? 'extension' : 'integrations';
-
-  if (!hasRepositoryConnection && (requested === 'extension' || requested === 'finalize')) {
-    return 'repository';
+  if (existing) {
+    try {
+      const decrypted = decryptPayload<{ apiKey?: string }>({
+        cipherText: existing.cipherText,
+        iv: existing.iv,
+        tag: existing.tag,
+      });
+      if (decrypted.apiKey) return decrypted.apiKey;
+    } catch {
+      logServerDebug('extension.key.decode_failed', { projectId });
+    }
   }
 
-  return requested;
+  const token = randomBytes(24).toString('hex');
+  const encoded = Buffer.from(projectId).toString('base64url');
+  const apiKey = `dto_${encoded}_${token}`;
+
+  const encrypted = encryptPayload({ apiKey });
+  await prisma.encryptedSecret.deleteMany({
+    where: {
+      scope: 'PROJECT',
+      projectId,
+      key: 'extension.apiKey',
+    },
+  });
+
+  await prisma.encryptedSecret.create({
+    data: {
+      scope: 'PROJECT',
+      projectId,
+      key: 'extension.apiKey',
+      cipherText: encrypted.cipherText,
+      iv: encrypted.iv,
+      tag: encrypted.tag,
+      algorithm: encrypted.algorithm,
+    },
+  });
+
+  return apiKey;
+}
+
+function resolveRepositoryRouteError(errorCode: string | undefined, detail: string | undefined): RepositoryRouteError | null {
+  if (!errorCode) return null;
+
+  const safeDetail = detail?.trim() || undefined;
+
+  switch (errorCode) {
+    case 'missing-project':
+      return {
+        code: errorCode,
+        title: 'Repository setup could not start',
+        message: 'The repository connection flow is missing a project context.',
+        hint: 'Reload onboarding and reopen Step 4 from a saved project.',
+      };
+    case 'github-connect':
+      return {
+        code: errorCode,
+        provider: 'GITHUB',
+        title: 'GitHub connection could not start',
+        message:
+          safeDetail ??
+          'GitHub App setup is incomplete. DioTest could not build the GitHub install link for this project.',
+        hint: 'Check the GitHub App environment variables, then retry Connect GitHub.',
+      };
+    case 'github-callback':
+      return {
+        code: errorCode,
+        provider: 'GITHUB',
+        title: 'GitHub authorization did not complete',
+        message:
+          safeDetail ??
+          'GitHub returned without a valid installation or state for this project.',
+        hint: 'Retry the GitHub App flow and complete the installation in the same browser session.',
+      };
+    case 'gitlab-connect':
+      return {
+        code: errorCode,
+        provider: 'GITLAB',
+        title: 'GitLab connection could not start',
+        message:
+          safeDetail ??
+          'GitLab OAuth setup is incomplete. DioTest could not build the GitLab authorization link.',
+        hint: 'Check the GitLab OAuth environment variables, then retry Connect GitLab.',
+      };
+    case 'gitlab-callback':
+      return {
+        code: errorCode,
+        provider: 'GITLAB',
+        title: 'GitLab authorization did not complete',
+        message:
+          safeDetail ??
+          'GitLab returned without a valid code or state for this project.',
+        hint: 'Retry the GitLab OAuth flow and finish it in the same browser session.',
+      };
+    default:
+      return {
+        code: errorCode,
+        title: 'Repository connection failed',
+        message: safeDetail ?? 'DioTest could not finish the provider connection flow.',
+        hint: 'Retry the provider connection. If it fails again, review the server configuration.',
+      };
+  }
+}
+
+function isStageSkipped(stage: StageKey, progress: OnboardingProgress | null) {
+  if (!progress) return false;
+  if (stage === 'integrations') return Boolean(progress.integrationsSkipped);
+  if (stage === 'repository') return Boolean(progress.repositorySkipped);
+  if (stage === 'extension') return Boolean(progress.extensionSkipped);
+  return false;
+}
+
+function isStageCleared(stage: StageKey, progress: OnboardingProgress | null, hasRepositoryConnection: boolean) {
+  if (stage === 'repository') {
+    return hasRepositoryConnection || isStageSkipped(stage, progress);
+  }
+
+  if (stage === 'extension') {
+    return Boolean(progress?.lastVisitedStage === 'finalize' || progress?.extensionSkipped);
+  }
+
+  if (stage === 'integrations') {
+    return Boolean(
+      isStageSkipped(stage, progress)
+      || progress?.lastVisitedStage === 'repository'
+      || progress?.lastVisitedStage === 'extension'
+      || progress?.lastVisitedStage === 'finalize',
+    );
+  }
+
+  return false;
+}
+
+function getFirstIncompleteStage(
+  hasOrg: boolean,
+  hasProject: boolean,
+  hasRepositoryConnection: boolean,
+  progress: OnboardingProgress | null,
+): StageKey {
+  if (!hasOrg) return 'organization';
+  if (!hasProject) return 'project';
+
+  if (!isStageCleared('integrations', progress, hasRepositoryConnection)) return 'integrations';
+  if (!isStageCleared('repository', progress, hasRepositoryConnection)) return 'repository';
+  if (!isStageCleared('extension', progress, hasRepositoryConnection)) return 'extension';
+  return 'finalize';
+}
+
+function resolveStage(
+  stage: string | undefined,
+  hasOrg: boolean,
+  hasProject: boolean,
+  hasRepositoryConnection: boolean,
+  onboardingComplete: boolean,
+  progress: OnboardingProgress | null,
+): StageKey {
+  const requested = isOnboardingStage(stage) ? stage : undefined;
+
+  if (onboardingComplete) {
+    return requested ?? 'finalize';
+  }
+
+  const firstIncomplete = getFirstIncompleteStage(hasOrg, hasProject, hasRepositoryConnection, progress);
+
+  if (!requested) return firstIncomplete;
+  if (requested === 'organization' || requested === 'project') return firstIncomplete;
+
+  const requestedIndex = stageOrder.indexOf(requested);
+  const firstIncompleteIndex = stageOrder.indexOf(firstIncomplete);
+
+  return requestedIndex > firstIncompleteIndex ? firstIncomplete : requested;
+}
+
+async function persistOnboardingProgress(projectId: string, progress: OnboardingProgress | null, stage: StageKey) {
+  const next = mergeOnboardingProgress(progress, {
+    lastVisitedStage: mergeStageProgress(progress?.lastVisitedStage, stage),
+  });
+  await saveSystemSetting({
+    scope: 'PROJECT',
+    projectId,
+    key: ONBOARDING_PROGRESS_KEY,
+    value: next,
+  });
 }
 
 function OnboardingHeader() {
@@ -204,9 +400,38 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
   const hasOrg = Boolean(bootstrap.organization);
   const hasProject = Boolean(bootstrap.project);
   const hasRepositoryConnection = Boolean(bootstrap.repositoryConnection);
-  const activeStage = resolveStage(resolvedParams?.stage, hasOrg, hasProject, hasRepositoryConnection);
+  let onboardingProgress = bootstrap.onboardingProgress;
+  if (!bootstrap.onboardingComplete && bootstrap.project && resolvedParams?.skip) {
+    if (resolvedParams.skip === 'integrations') {
+      onboardingProgress = mergeOnboardingProgress(onboardingProgress, { integrationsSkipped: true });
+    } else if (resolvedParams.skip === 'repository') {
+      onboardingProgress = mergeOnboardingProgress(onboardingProgress, { repositorySkipped: true });
+    } else if (resolvedParams.skip === 'extension') {
+      onboardingProgress = mergeOnboardingProgress(onboardingProgress, { extensionSkipped: true });
+    }
+  }
+  const activeStage = resolveStage(
+    resolvedParams?.stage,
+    hasOrg,
+    hasProject,
+    hasRepositoryConnection,
+    bootstrap.onboardingComplete,
+    onboardingProgress,
+  );
+  if (!bootstrap.onboardingComplete && bootstrap.project) {
+    await persistOnboardingProgress(bootstrap.project.id, onboardingProgress, activeStage);
+  }
+  const repositoryRouteError = activeStage === 'repository'
+    ? resolveRepositoryRouteError(resolvedParams?.error, resolvedParams?.message)
+    : null;
   const meta = stageMeta[activeStage];
   const durationMs = Date.now() - startedAt;
+
+  let extensionApiKey = '';
+  if (activeStage === 'extension' && bootstrap.project) {
+    extensionApiKey = await getOrCreateExtensionApiKey(bootstrap.project.id);
+  }
+
   logServerEvent('onboarding.rendered', {
     status: 'success',
     userId: user.id,
@@ -250,9 +475,16 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
                 <RepositoryStepForm
                   projectId={bootstrap.project.id}
                   existingConnection={bootstrap.repositoryConnection}
+                  routeError={repositoryRouteError}
                 />
               ) : null}
-              {activeStage === 'extension' ? <ExtensionSetupStep /> : null}
+              {activeStage === 'extension' ? (
+                <ExtensionSetupStep
+                  projectId={bootstrap.project?.id ?? ''}
+                  organizationSlug={bootstrap.organization?.slug ?? ''}
+                  initialApiKey={extensionApiKey}
+                />
+              ) : null}
               {activeStage === 'finalize' && bootstrap.project ? (
                 <FinalReviewStep
                   organizationName={bootstrap.organization?.name ?? 'DioTest Labs'}

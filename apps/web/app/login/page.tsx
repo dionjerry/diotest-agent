@@ -11,7 +11,7 @@ export default async function LoginPage() {
   const session = await auth();
   if (session?.user?.id) {
     const bootstrap = await getBootstrap(session.user.id);
-    redirect(bootstrap.organization && bootstrap.project ? '/app' : '/onboarding');
+    redirect(bootstrap.onboardingComplete ? '/app' : '/onboarding');
   }
 
   return (

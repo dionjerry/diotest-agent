@@ -1,4 +1,5 @@
 import { env } from '@/lib/env';
+import type { OnboardingProgress } from '@/lib/onboarding-state';
 import type { AgentAction, Task } from '@diotest/domain/platform/types';
 
 export class AppApiError extends Error {
@@ -101,6 +102,8 @@ export type BootstrapResponse = {
     configJson?: Record<string, unknown>;
     hasStoredSecret?: boolean;
   }>;
+  onboardingComplete: boolean;
+  onboardingProgress: OnboardingProgress | null;
 };
 
 export type SettingsResponse = {
