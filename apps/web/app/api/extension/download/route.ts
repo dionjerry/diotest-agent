@@ -13,27 +13,44 @@ const execAsync = promisify(exec);
 const EXTENSION_PATH = path.join(process.cwd(), 'apps', 'extension');
 const DIST_PATH = path.join(process.cwd(), '.diotest-extension-build');
 const ZIP_PATH = path.join(DIST_PATH, 'diotest-extension.zip');
+const BUILD_INPUT_PATHS = [
+  EXTENSION_PATH,
+  path.join(process.cwd(), 'packages', 'domain', 'src'),
+  path.join(process.cwd(), 'packages', 'engine', 'src'),
+  path.join(process.cwd(), 'packages', 'providers', 'src'),
+  path.join(process.cwd(), 'packages', 'renderers', 'src'),
+  path.join(process.cwd(), 'scripts', 'build-extension.mjs'),
+] as const;
 const IGNORED_PATH_SEGMENTS = new Set(['node_modules', '.git', 'dist']);
 const IGNORED_SUFFIXES = ['.DS_Store'];
 
-function getLatestExtensionSourceMtime(dirPath: string): number {
+function getLatestSourceMtime(inputPath: string): number {
+  if (!existsSync(inputPath)) {
+    return 0;
+  }
+
+  const stats = statSync(inputPath);
+  if (!stats.isDirectory()) {
+    return stats.mtimeMs;
+  }
+
   let latestMtime = 0;
 
-  for (const entry of readdirSync(dirPath, { withFileTypes: true })) {
+  for (const entry of readdirSync(inputPath, { withFileTypes: true })) {
     if (IGNORED_PATH_SEGMENTS.has(entry.name) || IGNORED_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) {
       continue;
     }
 
-    const fullPath = path.join(dirPath, entry.name);
-    const stats = statSync(fullPath);
-    latestMtime = Math.max(latestMtime, stats.mtimeMs);
+    const fullPath = path.join(inputPath, entry.name);
+    const entryStats = statSync(fullPath);
+    latestMtime = Math.max(latestMtime, entryStats.mtimeMs);
 
     if (entry.isDirectory()) {
-      latestMtime = Math.max(latestMtime, getLatestExtensionSourceMtime(fullPath));
+      latestMtime = Math.max(latestMtime, getLatestSourceMtime(fullPath));
     }
   }
 
-  return latestMtime;
+  return Math.max(latestMtime, stats.mtimeMs);
 }
 
 function shouldRebuildArtifact() {
@@ -42,7 +59,9 @@ function shouldRebuildArtifact() {
   }
 
   const zipMtime = statSync(ZIP_PATH).mtimeMs;
-  const latestSourceMtime = getLatestExtensionSourceMtime(EXTENSION_PATH);
+  const latestSourceMtime = Math.max(
+    ...BUILD_INPUT_PATHS.map((inputPath) => getLatestSourceMtime(inputPath)),
+  );
   return latestSourceMtime > zipMtime;
 }
 
