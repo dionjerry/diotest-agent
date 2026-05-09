@@ -38,6 +38,7 @@ model User {
   sessions        Session[]
   organizations   OrganizationMember[]
   resetTokens     PasswordResetToken[]
+  sentInvites     OrganizationInvite[] @relation("SentInvites")
 }
 
 model Account {
@@ -97,6 +98,7 @@ model Organization {
   projects     Project[]
   settings     SystemSetting[]
   encryptedSecrets EncryptedSecret[]
+  invites      OrganizationInvite[]
 }
 
 model OrganizationMember {
@@ -109,6 +111,20 @@ model OrganizationMember {
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, userId])
+}
+
+model OrganizationInvite {
+  id             String       @id @default(cuid())
+  organizationId String
+  email          String
+  role           String       @default("member")
+  token          String       @unique
+  invitedById    String
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy      User         @relation("SentInvites", fields: [invitedById], references: [id])
 }
 
 model Project {

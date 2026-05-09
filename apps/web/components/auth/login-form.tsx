@@ -13,7 +13,15 @@ import { Label } from '@/components/ui/label';
 
 const initialState: ActionState = {};
 
-export function LoginForm({ googleEnabled, googleSource }: { googleEnabled: boolean; googleSource: 'database' | 'environment' | 'none' }) {
+export function LoginForm({
+  googleEnabled,
+  googleSource,
+  next,
+}: {
+  googleEnabled: boolean;
+  googleSource: 'database' | 'environment' | 'none';
+  next?: string;
+}) {
   const [state, formAction] = useActionState(loginAction, initialState);
 
   return (
@@ -24,7 +32,7 @@ export function LoginForm({ googleEnabled, googleSource }: { googleEnabled: bool
       </div>
 
       <div className="space-y-4">
-        <GoogleSigninLink label="Continue with Google" enabled={googleEnabled} source={googleSource} />
+        <GoogleSigninLink label="Continue with Google" enabled={googleEnabled} source={googleSource} callbackUrl={next || '/app'} />
         <div className="flex items-center gap-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#54565d]">
           <span className="h-px flex-1 bg-white/6" />
           <span>Or use email</span>
@@ -33,6 +41,7 @@ export function LoginForm({ googleEnabled, googleSource }: { googleEnabled: bool
       </div>
 
       <form action={formAction} className="mt-8 space-y-5">
+        {next ? <input type="hidden" name="next" value={next} /> : null}
         <div>
           <Label>Work Email</Label>
           <Input name="email" type="email" placeholder="name@company.com" required className="rounded-[2px] border-0 bg-black px-4 text-[#8b8d94]" />
@@ -40,7 +49,7 @@ export function LoginForm({ googleEnabled, googleSource }: { googleEnabled: bool
         <div>
           <div className="mb-2 flex items-center justify-between">
             <Label>Password</Label>
-            <Link href="/forgot-password" className="text-[11px] font-semibold uppercase tracking-[0.15em] text-[#53dca4]">
+            <Link href={next ? `/forgot-password?next=${encodeURIComponent(next)}` : '/forgot-password'} className="text-[11px] font-semibold uppercase tracking-[0.15em] text-[#53dca4]">
               Forgot Password?
             </Link>
           </div>
@@ -52,7 +61,7 @@ export function LoginForm({ googleEnabled, googleSource }: { googleEnabled: bool
 
       <div className="mt-6 text-center text-sm text-[#8f9097]">
         Don&apos;t have an account?{' '}
-        <Link href="/signup" className="font-semibold text-white">
+        <Link href={next ? `/signup?next=${encodeURIComponent(next)}` : '/signup'} className="font-semibold text-white">
           Request Access
         </Link>
       </div>

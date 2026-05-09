@@ -1867,10 +1867,10 @@ async function testDioTestConnection(apiBaseUrl, apiKey) {
   const normalizedUrl = normalizeApiBaseUrl(apiBaseUrl);
   const trimmedKey = apiKey.trim();
   if (!normalizedUrl) {
-    return { ok: false, error: "API Base URL is required." };
+    return { ok: false, error: "Add the project API Base URL from onboarding Step 5 before testing the connection." };
   }
   if (!trimmedKey) {
-    return { ok: false, error: "API Key is required." };
+    return { ok: false, error: "Add the project API Key from onboarding Step 5 before testing the connection." };
   }
   try {
     const response = await fetch(`${normalizedUrl}/api/extension/ping`, {
@@ -1887,7 +1887,7 @@ async function testDioTestConnection(apiBaseUrl, apiKey) {
     }
     return {
       ok: true,
-      message: "Connection verified."
+      message: "Saved locally and verified against the DioTest app."
     };
   } catch (error) {
     return {

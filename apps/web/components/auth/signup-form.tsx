@@ -13,7 +13,15 @@ import { Label } from '@/components/ui/label';
 
 const initialState: ActionState = {};
 
-export function SignupForm({ googleEnabled, googleSource }: { googleEnabled: boolean; googleSource: 'database' | 'environment' | 'none' }) {
+export function SignupForm({
+  googleEnabled,
+  googleSource,
+  next,
+}: {
+  googleEnabled: boolean;
+  googleSource: 'database' | 'environment' | 'none';
+  next?: string;
+}) {
   const [state, formAction] = useActionState(signupAction, initialState);
 
   return (
@@ -24,7 +32,7 @@ export function SignupForm({ googleEnabled, googleSource }: { googleEnabled: boo
       </div>
 
       <div className="space-y-4">
-        <GoogleSigninLink label="Sign up with Google" enabled={googleEnabled} source={googleSource} callbackUrl="/dashboard" />
+        <GoogleSigninLink label="Sign up with Google" enabled={googleEnabled} source={googleSource} callbackUrl={next || '/app'} />
         <div className="flex items-center gap-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#54565d]">
           <span className="h-px flex-1 bg-white/6" />
           <span>Or continue with email</span>
@@ -33,6 +41,7 @@ export function SignupForm({ googleEnabled, googleSource }: { googleEnabled: boo
       </div>
 
       <form action={formAction} className="mt-8 space-y-5">
+        {next ? <input type="hidden" name="next" value={next} /> : null}
         <div>
           <Label>Full name</Label>
           <Input name="name" placeholder="John Doe" required className="rounded-[2px] border border-white/5 bg-[#14151a] px-4 text-[#8b8d94]" />
@@ -60,7 +69,7 @@ export function SignupForm({ googleEnabled, googleSource }: { googleEnabled: boo
 
       <div className="mt-6 text-center text-sm text-[#8f9097]">
         Already registered?{' '}
-        <Link href="/login" className="font-semibold text-[#53dca4]">
+        <Link href={next ? `/login?next=${encodeURIComponent(next)}` : '/login'} className="font-semibold text-[#53dca4]">
           Sign in to Studio
         </Link>
       </div>

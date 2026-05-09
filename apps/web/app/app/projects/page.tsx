@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import { SignOutButton } from '@/components/auth/sign-out-button';
+import { WorkspaceMenu } from '@/components/app-shell/workspace-menu';
 import { BackendUnavailable } from '@/components/system/backend-unavailable';
 import { Badge } from '@/components/ui/badge';
 import { LogoLockup } from '@/components/ui/logo';
@@ -8,7 +8,7 @@ import { getActions, getSettings } from '@/lib/api';
 import { requireOnboardedUser } from '@/lib/guards';
 
 export default async function ProjectsPage() {
-  const { bootstrap, unavailable, unavailableMessage } = await requireOnboardedUser();
+  const { user, bootstrap, unavailable, unavailableMessage } = await requireOnboardedUser();
 
   if (unavailable || !bootstrap) {
     return (
@@ -93,7 +93,19 @@ export default async function ProjectsPage() {
               <span className="text-white">Projects</span>
               <Link href="/studio" className="text-[#8b8d94] hover:text-white">Studio</Link>
             </div>
-            <SignOutButton variant="ghost" className="h-9 rounded-full border border-white/8 bg-[#1b1c21] px-3 text-white" />
+            <div className="flex items-center gap-4">
+              <Link href="/app/settings" className="rounded-[4px] border border-white/8 bg-[#1b1c21] px-4 py-2 text-sm text-white transition hover:bg-[#27292f]">
+                Settings
+              </Link>
+              <WorkspaceMenu
+                userLabel={user.name ?? user.email ?? 'DioTest User'}
+                userSubLabel={user.email}
+                organizationName={bootstrap.organization?.name}
+                projectName={bootstrap.project?.name}
+                repositoryName={bootstrap.repositoryConnection?.fullName}
+                integrationCount={bootstrap.integrations.length}
+              />
+            </div>
           </header>
 
           <div className="space-y-6 px-6 py-6">

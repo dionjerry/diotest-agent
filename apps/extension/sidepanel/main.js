@@ -28915,7 +28915,7 @@ function SettingsPanel({ settings, onSaved }) {
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "settings-section", children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "settings-section-title", children: "DioTest Connection" }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: "API Base URL", hint: "Format: https://app.ngrok.io/ORG_SLUG/PROJECT_ID", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: "API Base URL", hint: "Use the exact Step 5 project URL, for example https://app.ngrok.io/your-org/your-project-id", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
         Input,
         {
           type: "text",
@@ -28924,7 +28924,7 @@ function SettingsPanel({ settings, onSaved }) {
           placeholder: "https://app.ngrok.io/my-org/proj-123"
         }
       ) }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: "API Key", hint: "Copy from onboarding Step 5", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Field, { label: "API Key", hint: "Copy the project-scoped key from onboarding Step 5", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
         Input,
         {
           type: "password",
@@ -28942,7 +28942,7 @@ function SettingsPanel({ settings, onSaved }) {
           children: connectionState === "loading" ? "Testing..." : "Test Connection"
         }
       ) }),
-      connectionMessage ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: connectionState === "success" ? "field-hint" : "field-error", children: connectionMessage }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "field-hint", children: "Save these fields first, then test the connection against the DioTest app." })
+      connectionMessage ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: connectionState === "success" ? "field-hint" : "field-error", children: connectionMessage }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "field-hint", children: "Save these fields locally in the extension, then run Test Connection to verify them against the DioTest app." })
     ] }),
     validation.errors.global && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "warning-banner", children: validation.errors.global }),
     saveError && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "warning-banner", children: saveError }),

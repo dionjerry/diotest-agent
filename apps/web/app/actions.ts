@@ -14,6 +14,11 @@ import {
   createAgentAction,
   createOrganization,
   createProject,
+  deleteProject,
+  revokeOrganizationInvite,
+  updateOrganizationProfile,
+  updateProjectProfile,
+  updateUserProfile,
   saveRepositoryConnection,
   saveRepositorySecret,
   saveAiSettings,
@@ -21,10 +26,15 @@ import {
   saveIntegrationSecret,
   saveOAuthSettings,
   saveSystemSetting,
+  inviteOrganizationMember,
+  removeOrganizationMember,
+  updateOrganizationMemberRole,
+  transferOrganizationOwnership,
+  deleteOrganization,
 } from '@/lib/api';
 import { auth, signIn, signOut } from '@/lib/auth';
 import { getPersistedIntegrationState, getIntegrationName, persistIntegrationConnection, type IntegrationType } from '@/lib/integration-connections';
-import { isSmtpConfigured, sendPasswordResetEmail } from '@/lib/mailer';
+import { isSmtpConfigured, sendPasswordResetEmail, sendOrganizationInviteEmail } from '@/lib/mailer';
 import {
   mergeStageProgress,
   mergeOnboardingProgress,
@@ -61,6 +71,58 @@ function readString(formData: FormData, key: string) {
 
 function readBoolean(formData: FormData, key: string) {
   return formData.get(key) === 'on' || formData.get(key) === 'true';
+}
+
+async function requireOwnedOrganization(userId: string, organizationId: string) {
+  const membership = await prisma.organizationMember.findFirst({
+    where: { userId, organizationId },
+    select: {
+      id: true,
+      role: true,
+      organization: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+        },
+      },
+    },
+  });
+
+  return membership;
+}
+
+async function requireOwnedProject(userId: string, projectId: string) {
+  const project = await prisma.project.findFirst({
+    where: {
+      id: projectId,
+      organization: {
+        members: {
+          some: { userId },
+        },
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      description: true,
+      organizationId: true,
+      organization: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+        },
+      },
+    },
+  });
+
+  return project;
+}
+
+function canManageOrganizationSettings(role: string | null | undefined) {
+  return role === 'owner' || role === 'admin';
 }
 
 async function getProjectOnboardingProgress(projectId: string) {
@@ -100,12 +162,13 @@ async function setProjectOnboardingStage(projectId: string, stage: OnboardingSta
 export async function loginAction(_: ActionState, formData: FormData): Promise<ActionState> {
   const email = readString(formData, 'email').toLowerCase();
   const password = readString(formData, 'password');
+  const next = readString(formData, 'next') || '/app';
 
   try {
     await signIn('credentials', {
       email,
       password,
-      redirectTo: '/app',
+      redirectTo: next,
     });
     return {};
   } catch (error) {
@@ -123,6 +186,7 @@ export async function signupAction(_: ActionState, formData: FormData): Promise<
   const email = readString(formData, 'email').toLowerCase();
   const password = readString(formData, 'password');
   const confirmPassword = readString(formData, 'confirmPassword');
+  const next = readString(formData, 'next') || '/onboarding';
 
   if (!name || !email || !password) {
     logServerError('auth.signup.failed', 'validation_error', { status: 'failed' });
@@ -169,7 +233,7 @@ export async function signupAction(_: ActionState, formData: FormData): Promise<
   await signIn('credentials', {
     email,
     password,
-    redirectTo: '/onboarding',
+    redirectTo: next,
   });
 
   return {};
@@ -601,11 +665,26 @@ export async function completeSetupAction(_: ActionState, formData: FormData): P
 
 
 export async function saveIntegrationConfigAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
   const projectId = readString(formData, 'projectId');
   const type = readString(formData, 'type');
 
   if (!projectId) {
     return { error: 'Project is required.' };
+  }
+
+  const project = await requireOwnedProject(session.user.id, projectId);
+  if (!project) {
+    return { error: 'Project not found.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, project.organizationId);
+  if (!membership || !canManageOrganizationSettings(membership.role)) {
+    return { error: 'Only organization owners and admins can update integration configuration.' };
   }
 
   if (type === 'JIRA') {
@@ -687,12 +766,30 @@ export async function finalizeOnboardingAction(_: ActionState, formData: FormDat
 }
 
 export async function saveOAuthSettingsAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
+  const organizationId = readString(formData, 'organizationId');
   const enabled = readBoolean(formData, 'enabled');
   const clientId = readString(formData, 'clientId');
   const clientSecret = readString(formData, 'clientSecret');
   const authUrl = readString(formData, 'authUrl');
   const tokenUrl = readString(formData, 'tokenUrl');
   const userInfoUrl = readString(formData, 'userInfoUrl');
+
+  if (!organizationId) {
+    return { error: 'Organization is required.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, organizationId);
+  if (!membership) {
+    return { error: 'Organization not found.' };
+  }
+  if (!canManageOrganizationSettings(membership.role)) {
+    return { error: 'Only organization owners and admins can update OAuth settings.' };
+  }
 
   if (enabled && !clientId) {
     return { error: 'Client ID is required when Google OAuth is enabled.' };
@@ -712,7 +809,212 @@ export async function saveOAuthSettingsAction(_: ActionState, formData: FormData
   return { success: 'OAuth settings saved.' };
 }
 
+export async function saveUserProfileAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
+  const name = readString(formData, 'name');
+  if (!name) {
+    return { error: 'Display name is required.' };
+  }
+
+  try {
+    await updateUserProfile({
+      userId: session.user.id,
+      name,
+    });
+    revalidateAppData();
+
+    return { success: 'User profile saved.' };
+  } catch (error) {
+    if (error instanceof AppApiError && error.code === 'request_failed') {
+      return { error: error.message || 'Could not save your profile right now.' };
+    }
+
+    throw error;
+  }
+}
+
+export async function saveOrganizationProfileAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
+  const organizationId = readString(formData, 'organizationId');
+  const name = readString(formData, 'name');
+  const slug = slugify(readString(formData, 'slug'));
+
+  if (!organizationId || !name || !slug) {
+    return { error: 'Organization name and slug are required.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, organizationId);
+  if (!membership) {
+    return { error: 'Organization not found.' };
+  }
+
+  if (!canManageOrganizationSettings(membership.role)) {
+    return { error: 'Only organization owners and admins can update organization settings.' };
+  }
+
+  try {
+    await updateOrganizationProfile({
+      organizationId,
+      name,
+      slug,
+    });
+    revalidateAppData();
+
+    return { success: 'Organization profile saved.' };
+  } catch (error) {
+    if (error instanceof AppApiError && error.code === 'request_failed') {
+      return { error: error.message || 'Organization profile could not be saved.' };
+    }
+
+    throw error;
+  }
+}
+
+export async function saveProjectProfileAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
+  const projectId = readString(formData, 'projectId');
+  const name = readString(formData, 'name');
+  const slug = slugify(readString(formData, 'slug'));
+  const description = readString(formData, 'description');
+
+  if (!projectId || !name || !slug) {
+    return { error: 'Project name and slug are required.' };
+  }
+
+  const project = await requireOwnedProject(session.user.id, projectId);
+  if (!project) {
+    return { error: 'Project not found.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, project.organizationId);
+  if (!membership || !canManageOrganizationSettings(membership.role)) {
+    return { error: 'Only organization owners and admins can update project settings.' };
+  }
+
+  try {
+    await updateProjectProfile({
+      projectId,
+      name,
+      slug,
+      description: description || undefined,
+    });
+    revalidateAppData();
+
+    return { success: 'Project profile saved.' };
+  } catch (error) {
+    if (error instanceof AppApiError && error.code === 'request_failed') {
+      return { error: error.message || 'Project profile could not be saved.' };
+    }
+
+    throw error;
+  }
+}
+
+export async function queueBrowserChecksAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
+  const projectId = readString(formData, 'projectId');
+  if (!projectId) {
+    return { error: 'Project is required.' };
+  }
+
+  const project = await requireOwnedProject(session.user.id, projectId);
+  if (!project) {
+    return { error: 'Project not found.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, project.organizationId);
+  if (!membership || !canManageOrganizationSettings(membership.role)) {
+    return { error: 'Only organization owners and admins can queue browser checks from settings.' };
+  }
+
+  try {
+    await createAgentAction({
+      projectId,
+      type: 'run_browser_checks',
+      target: 'project',
+      title: `Run browser checks for ${project.name}`,
+      description: 'Queued from settings to validate the current project runtime and browser-facing flows.',
+      readOnly: false,
+      approvalRequired: false,
+      input: {
+        source: 'settings',
+        projectSlug: project.slug,
+      },
+    });
+    revalidateAppData();
+
+    return { success: 'Browser checks queued.' };
+  } catch (error) {
+    if (error instanceof AppApiError && error.code === 'request_failed') {
+      return { error: error.message || 'Could not queue browser checks.' };
+    }
+
+    throw error;
+  }
+}
+
+export async function deleteProjectAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
+  const projectId = readString(formData, 'projectId');
+  const confirmation = readString(formData, 'confirmation');
+
+  if (!projectId) {
+    return { error: 'Project is required.' };
+  }
+
+  const project = await requireOwnedProject(session.user.id, projectId);
+  if (!project) {
+    return { error: 'Project not found.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, project.organizationId);
+  if (!membership || !canManageOrganizationSettings(membership.role)) {
+    return { error: 'Only organization owners and admins can delete a project.' };
+  }
+
+  if (confirmation !== project.slug) {
+    return { error: `Type "${project.slug}" to confirm deletion.` };
+  }
+
+  try {
+    await deleteProject(projectId);
+    revalidateAppData();
+    redirect('/app');
+  } catch (error) {
+    if (error instanceof AppApiError && error.code === 'request_failed') {
+      return { error: error.message || 'Project deletion failed.' };
+    }
+
+    throw error;
+  }
+}
+
 export async function saveAiSettingsAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
   const organizationId = readString(formData, 'organizationId') || undefined;
   const projectId = readString(formData, 'projectId') || undefined;
   const preferredProvider = readString(formData, 'preferredProvider');
@@ -726,6 +1028,28 @@ export async function saveAiSettingsAction(_: ActionState, formData: FormData): 
 
   if (preferredProvider !== 'openai' && preferredProvider !== 'openrouter') {
     return { error: 'Choose a valid AI provider.' };
+  }
+
+  if (projectId) {
+    const project = await requireOwnedProject(session.user.id, projectId);
+    if (!project) {
+      return { error: 'Project not found.' };
+    }
+
+    const membership = await requireOwnedOrganization(session.user.id, project.organizationId);
+    if (!membership || !canManageOrganizationSettings(membership.role)) {
+      return { error: 'Only organization owners and admins can update AI settings.' };
+    }
+  } else if (organizationId) {
+    const membership = await requireOwnedOrganization(session.user.id, organizationId);
+    if (!membership) {
+      return { error: 'Organization not found.' };
+    }
+    if (!canManageOrganizationSettings(membership.role)) {
+      return { error: 'Only organization owners and admins can update AI settings.' };
+    }
+  } else {
+    return { error: 'Settings scope is required.' };
   }
 
   await saveAiSettings({
@@ -742,11 +1066,26 @@ export async function saveAiSettingsAction(_: ActionState, formData: FormData): 
 }
 
 export async function saveIntegrationSecretAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
   const projectId = readString(formData, 'projectId');
   const type = readString(formData, 'type');
 
   if (!projectId) {
     return { error: 'Project is required.' };
+  }
+
+  const project = await requireOwnedProject(session.user.id, projectId);
+  if (!project) {
+    return { error: 'Project not found.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, project.organizationId);
+  if (!membership || !canManageOrganizationSettings(membership.role)) {
+    return { error: 'Only organization owners and admins can update integration credentials.' };
   }
 
   if (type !== 'JIRA' && type !== 'TRELLO' && type !== 'GOOGLE_SHEETS') {
@@ -875,4 +1214,277 @@ export async function approveAgentActionAction(_: ActionState, formData: FormDat
   await approveAgentAction(actionId);
   revalidateAppData();
   return { success: 'Action approved and queued.' };
+}
+
+export async function inviteOrganizationMemberAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    logServerError('member.invite.failed', 'auth_error', { status: 'failed' });
+    redirect('/login');
+  }
+
+  const organizationId = readString(formData, 'organizationId');
+  const email = readString(formData, 'email');
+  const role = readString(formData, 'role');
+
+  if (!organizationId || !email || !role) {
+    return { error: 'Email and role are required.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, organizationId);
+  if (!membership) {
+    logServerError('member.invite.failed', 'auth_error', { status: 'failed', userId: session.user.id, organizationId });
+    return { error: 'You do not have access to this organization.' };
+  }
+
+  if (membership.role !== 'owner' && membership.role !== 'admin') {
+    return { error: 'Only organization owners and admins can invite members.' };
+  }
+
+  if (role === 'owner' && membership.role !== 'owner') {
+    return { error: 'Only organization owners can invite another owner.' };
+  }
+
+  try {
+    const { rawToken } = await inviteOrganizationMember(organizationId, session.user.id, {
+      email,
+      role: role as 'owner' | 'admin' | 'member',
+    });
+
+    const inviteUrl = `${absoluteUrl('/invite')}/${rawToken}`;
+
+    try {
+      await sendOrganizationInviteEmail({
+        to: email,
+        inviterName: session.user.name || session.user.email || 'A team member',
+        orgName: membership.organization.name,
+        inviteUrl,
+      });
+    } catch (emailError) {
+      logServerError('member.invite.email_send.failed', 'network_error', {
+        status: 'failed',
+        userId: session.user.id,
+        organizationId,
+      });
+      return {
+        error: 'Invitation created, but email could not be sent. SMTP is not configured.',
+      };
+    }
+
+    logServerEvent('member.invited', {
+      status: 'success',
+      userId: session.user.id,
+      organizationId,
+      invitedEmail: email,
+    });
+    revalidateAppData();
+
+    return { success: `Invitation sent to ${email}` };
+  } catch (error) {
+    logServerError('member.invite.failed', 'internal_error', {
+      status: 'failed',
+      userId: session.user.id,
+      organizationId,
+    });
+    throw error;
+  }
+}
+
+export async function revokeOrganizationInviteAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    logServerError('member.invite.revoke.failed', 'auth_error', { status: 'failed' });
+    redirect('/login');
+  }
+
+  const organizationId = readString(formData, 'organizationId');
+  const inviteId = readString(formData, 'inviteId');
+
+  if (!organizationId || !inviteId) {
+    return { error: 'Organization and invite IDs are required.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, organizationId);
+  if (!membership) {
+    return { error: 'You do not have access to this organization.' };
+  }
+
+  if (membership.role !== 'owner' && membership.role !== 'admin') {
+    return { error: 'Only organization owners and admins can revoke invites.' };
+  }
+
+  try {
+    await revokeOrganizationInvite(organizationId, session.user.id, inviteId);
+    logServerEvent('member.invite.revoked', {
+      status: 'success',
+      userId: session.user.id,
+      organizationId,
+      inviteId,
+    });
+    revalidateAppData();
+    return { success: 'Invitation revoked.' };
+  } catch (error) {
+    if (error instanceof AppApiError && error.code === 'request_failed') {
+      return { error: error.message || 'Invitation could not be revoked.' };
+    }
+
+    logServerError('member.invite.revoke.failed', 'validation_error', { status: 'failed', userId: session.user.id, organizationId });
+    throw error;
+  }
+}
+
+export async function removeOrganizationMemberAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    logServerError('member.remove.failed', 'auth_error', { status: 'failed' });
+    redirect('/login');
+  }
+
+  const organizationId = readString(formData, 'organizationId');
+  const memberId = readString(formData, 'memberId');
+
+  if (!organizationId || !memberId) {
+    return { error: 'Organization and member IDs are required.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, organizationId);
+  if (!membership || membership.role !== 'owner') {
+    return { error: 'Only organization owners can remove members.' };
+  }
+
+  try {
+    await removeOrganizationMember(organizationId, session.user.id, memberId);
+
+    logServerEvent('member.removed', {
+      status: 'success',
+      userId: session.user.id,
+      organizationId,
+      removedMemberId: memberId,
+    });
+    revalidateAppData();
+
+    return { success: 'Member removed.' };
+  } catch (error) {
+    logServerError('member.remove.failed', 'validation_error', { status: 'failed', userId: session.user.id, organizationId });
+    throw error;
+  }
+}
+
+export async function updateOrganizationMemberRoleAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    logServerError('member.role.update.failed', 'auth_error', { status: 'failed' });
+    redirect('/login');
+  }
+
+  const organizationId = readString(formData, 'organizationId');
+  const memberId = readString(formData, 'memberId');
+  const role = readString(formData, 'role');
+
+  if (!organizationId || !memberId || !role) {
+    return { error: 'Organization ID, member ID, and role are required.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, organizationId);
+  if (!membership || membership.role !== 'owner') {
+    return { error: 'Only organization owners can change member roles.' };
+  }
+
+  try {
+    await updateOrganizationMemberRole(organizationId, session.user.id, memberId, {
+      role: role as 'owner' | 'admin' | 'member',
+    });
+
+    logServerEvent('member.role.updated', {
+      status: 'success',
+      userId: session.user.id,
+      organizationId,
+      memberId,
+      newRole: role,
+    });
+    revalidateAppData();
+
+    return { success: 'Member role updated.' };
+  } catch (error) {
+    logServerError('member.role.update.failed', 'validation_error', { status: 'failed', userId: session.user.id, organizationId });
+    throw error;
+  }
+}
+
+export async function transferOrganizationOwnershipAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    logServerError('organization.ownership.transfer.failed', 'auth_error', { status: 'failed' });
+    redirect('/login');
+  }
+
+  const organizationId = readString(formData, 'organizationId');
+  const newOwnerUserId = readString(formData, 'newOwnerUserId');
+
+  if (!organizationId || !newOwnerUserId) {
+    return { error: 'Organization ID and new owner user ID are required.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, organizationId);
+  if (!membership || membership.role !== 'owner') {
+    return { error: 'Only organization owners can transfer ownership.' };
+  }
+
+  try {
+    await transferOrganizationOwnership(organizationId, session.user.id, {
+      newOwnerUserId,
+    });
+
+    logServerEvent('organization.ownership.transferred', {
+      status: 'success',
+      userId: session.user.id,
+      organizationId,
+      newOwnerUserId,
+    });
+    revalidateAppData();
+
+    return { success: 'Ownership transferred.' };
+  } catch (error) {
+    logServerError('organization.ownership.transfer.failed', 'validation_error', { status: 'failed', userId: session.user.id, organizationId });
+    throw error;
+  }
+}
+
+export async function deleteOrganizationAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    logServerError('organization.delete.failed', 'auth_error', { status: 'failed' });
+    redirect('/login');
+  }
+
+  const organizationId = readString(formData, 'organizationId');
+  const confirmation = readString(formData, 'confirmation');
+
+  if (!organizationId || !confirmation) {
+    return { error: 'Organization ID and confirmation are required.' };
+  }
+
+  const membership = await requireOwnedOrganization(session.user.id, organizationId);
+  if (!membership || membership.role !== 'owner') {
+    return { error: 'Only organization owners can delete the organization.' };
+  }
+
+  if (confirmation !== membership.organization.slug) {
+    return { error: `Please type the organization slug "${membership.organization.slug}" to confirm deletion.` };
+  }
+
+  try {
+    await deleteOrganization(organizationId, session.user.id);
+
+    logServerEvent('organization.deleted', {
+      status: 'success',
+      userId: session.user.id,
+      organizationId,
+    });
+
+    redirect('/login');
+  } catch (error) {
+    logServerError('organization.delete.failed', 'validation_error', { status: 'failed', userId: session.user.id, organizationId });
+    throw error;
+  }
 }

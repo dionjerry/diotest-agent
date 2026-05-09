@@ -6,12 +6,18 @@ import { auth } from '@/lib/auth';
 import { getBootstrap } from '@/lib/api';
 import { getGoogleOAuthState } from '@/lib/platform-config';
 
-export default async function SignupPage() {
+export default async function SignupPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ next?: string }>;
+}) {
   const googleState = await getGoogleOAuthState();
+  const resolvedParams = searchParams ? await searchParams : undefined;
+  const next = resolvedParams?.next;
   const session = await auth();
   if (session?.user?.id) {
     const bootstrap = await getBootstrap(session.user.id);
-    redirect(bootstrap.onboardingComplete ? '/app' : '/onboarding');
+    redirect(next || (bootstrap.onboardingComplete ? '/app' : '/onboarding'));
   }
 
   return (
@@ -20,7 +26,7 @@ export default async function SignupPage() {
       title="Deploy agents with surgical precision."
       description="The monolithic environment for automated testing. Built for engineers who demand technical excellence and high-stakes reliability."
     >
-      <SignupForm googleEnabled={googleState.enabled} googleSource={googleState.source} />
+      <SignupForm googleEnabled={googleState.enabled} googleSource={googleState.source} next={next} />
     </AuthShell>
   );
 }

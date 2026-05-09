@@ -59,4 +59,24 @@ body {
   .copy-muted {
     @apply text-sm leading-6 text-muted;
   }
+
+  .settings-card {
+    @apply rounded-lg border border-white/5 bg-[#1b1d22] shadow-none;
+  }
+
+  .settings-card-muted {
+    @apply rounded-lg border border-white/5 bg-[#16171b];
+  }
+
+  .settings-kicker {
+    @apply text-[11px] font-bold uppercase tracking-[0.2em] text-[#6f7178];
+  }
+
+  .settings-copy {
+    @apply text-sm leading-6 text-[#8d8f96];
+  }
+
+  .settings-table-row {
+    @apply transition-colors hover:bg-white/[0.02];
+  }
 }

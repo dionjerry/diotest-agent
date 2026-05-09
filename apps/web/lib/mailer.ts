@@ -53,3 +53,36 @@ export async function sendPasswordResetEmail(payload: { to: string; resetUrl: st
     `,
   });
 }
+
+export async function sendOrganizationInviteEmail(payload: {
+  to: string;
+  inviterName: string;
+  orgName: string;
+  inviteUrl: string;
+}) {
+  if (!hasSmtpConfig()) {
+    throw new Error('Organization invite email is unavailable because SMTP is not configured.');
+  }
+
+  const transport = nodemailer.createTransport({
+    host: env.smtp.host,
+    port: env.smtp.port,
+    secure: env.smtp.secure,
+    auth: {
+      user: env.smtp.user,
+      pass: env.smtp.pass,
+    },
+  });
+
+  await transport.sendMail({
+    from: env.smtp.from,
+    to: payload.to,
+    subject: `You're invited to join ${payload.orgName} on DioTest`,
+    text: `${payload.inviterName} invited you to join ${payload.orgName} on DioTest.\n\nAccept the invitation: ${payload.inviteUrl}\n\nThis invitation expires in 7 days.`,
+    html: `
+      <p>${payload.inviterName} invited you to join <strong>${payload.orgName}</strong> on DioTest.</p>
+      <p><a href="${payload.inviteUrl}">Accept the invitation</a></p>
+      <p>This invitation expires in 7 days.</p>
+    `,
+  });
+}

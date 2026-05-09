@@ -70,6 +70,9 @@ export type BootstrapResponse = {
     id: string;
     name: string;
     slug: string;
+    currentUserRole?: string;
+    memberCount?: number;
+    projectCount?: number;
   } | null;
   project: {
     id: string;
@@ -143,6 +146,23 @@ export type SettingsResponse = {
   }>;
 };
 
+export type SettingsExportResponse = SettingsResponse;
+
+export type EnvironmentSettingEntry = {
+  key: string;
+  displayType: 'secret' | 'text' | 'status' | 'number' | 'json';
+  valuePreview: string;
+  isSecret: boolean;
+  isEditable: boolean;
+  updatedAt: string | null;
+  scope: 'system' | 'organization' | 'project' | 'integration' | 'repository';
+  source: string;
+};
+
+export type EnvironmentSettingsResponse = {
+  entries: EnvironmentSettingEntry[];
+};
+
 export type ActionsResponse = {
   actions: AgentAction[];
   tasks: Task[];
@@ -171,6 +191,49 @@ export function createProject(payload: {
   return request<{ projectId: string }>('/projects', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export function updateUserProfile(payload: {
+  userId: string;
+  name: string;
+}) {
+  return request<{ ok: true }>(`/users/${payload.userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name: payload.name }),
+  });
+}
+
+export function updateOrganizationProfile(payload: {
+  organizationId: string;
+  name: string;
+  slug: string;
+}) {
+  return request<{ ok: true }>(`/organizations/${payload.organizationId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name: payload.name, slug: payload.slug }),
+  });
+}
+
+export function updateProjectProfile(payload: {
+  projectId: string;
+  name: string;
+  slug: string;
+  description?: string;
+}) {
+  return request<{ ok: true }>(`/projects/${payload.projectId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      name: payload.name,
+      slug: payload.slug,
+      description: payload.description ?? null,
+    }),
+  });
+}
+
+export function deleteProject(projectId: string) {
+  return request<{ ok: true }>(`/projects/${projectId}`, {
+    method: 'DELETE',
   });
 }
 
@@ -229,6 +292,25 @@ export function getSettings(payload: { organizationId?: string; projectId?: stri
   if (payload.projectId) params.set('projectId', payload.projectId);
 
   return request<SettingsResponse>(`/settings?${params.toString()}`, undefined, {
+    revalidate: 30,
+    tags: [settingsTag(payload.organizationId, payload.projectId)],
+  });
+}
+
+export function getSettingsExport(payload: { organizationId?: string; projectId?: string }) {
+  const params = new URLSearchParams();
+  if (payload.organizationId) params.set('organizationId', payload.organizationId);
+  if (payload.projectId) params.set('projectId', payload.projectId);
+
+  return request<SettingsExportResponse>(`/settings/export?${params.toString()}`);
+}
+
+export function getEnvironmentSettings(payload: { organizationId?: string; projectId?: string }) {
+  const params = new URLSearchParams();
+  if (payload.organizationId) params.set('organizationId', payload.organizationId);
+  if (payload.projectId) params.set('projectId', payload.projectId);
+
+  return request<EnvironmentSettingsResponse>(`/settings/environment?${params.toString()}`, undefined, {
     revalidate: 30,
     tags: [settingsTag(payload.organizationId, payload.projectId)],
   });
@@ -311,5 +393,83 @@ export function approveAgentAction(actionId: string) {
   return request<{ action: AgentAction }>('/actions/approve', {
     method: 'POST',
     body: JSON.stringify({ actionId }),
+  });
+}
+
+export type OrgMember = {
+  id: string;
+  userId: string;
+  role: string;
+  createdAt: string;
+  user: { id: string; name: string | null; email: string };
+};
+
+export type OrgInvite = {
+  id: string;
+  email: string;
+  role: string;
+  expiresAt: string;
+  createdAt: string;
+};
+
+export function getOrganizationMembers(organizationId: string) {
+  return request<{ members: OrgMember[] }>(`/organizations/${organizationId}/members`);
+}
+
+export function getOrganizationInvites(organizationId: string) {
+  return request<{ invites: OrgInvite[] }>(`/organizations/${organizationId}/invites`);
+}
+
+export function inviteOrganizationMember(
+  organizationId: string,
+  userId: string,
+  payload: {
+    email: string;
+    role: 'owner' | 'admin' | 'member';
+  },
+) {
+  return request<{ inviteId: string; rawToken: string }>(`/organizations/${organizationId}/invites`, {
+    method: 'POST',
+    body: JSON.stringify({ ...payload, userId }),
+  });
+}
+
+export function revokeOrganizationInvite(organizationId: string, userId: string, inviteId: string) {
+  return request<{ success: boolean }>(`/organizations/${organizationId}/invites/${inviteId}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ userId }),
+  });
+}
+
+export function removeOrganizationMember(organizationId: string, userId: string, memberId: string) {
+  return request<{ success: boolean }>(`/organizations/${organizationId}/members/${memberId}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ userId }),
+  });
+}
+
+export function updateOrganizationMemberRole(
+  organizationId: string,
+  userId: string,
+  memberId: string,
+  payload: { role: 'owner' | 'admin' | 'member' },
+) {
+  return request<OrgMember>(`/organizations/${organizationId}/members/${memberId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ ...payload, userId }),
+  });
+}
+
+export function transferOrganizationOwnership(organizationId: string, userId: string, payload: { newOwnerUserId: string }) {
+  return request<{ success: boolean }>(`/organizations/${organizationId}/transfer`, {
+    method: 'POST',
+    body: JSON.stringify({ ...payload, userId }),
+  });
+}
+
+export function deleteOrganization(organizationId: string, userId: string) {
+  return request<{ success: boolean }>(`/organizations/${organizationId}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ userId }),
   });
 }

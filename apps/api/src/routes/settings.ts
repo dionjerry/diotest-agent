@@ -52,6 +52,363 @@ const repositorySecretSchema = z.object({
   secretJson: z.record(z.string(), z.unknown()).optional(),
 });
 
+type EnvironmentSettingEntry = {
+  key: string;
+  displayType: 'secret' | 'text' | 'status' | 'number' | 'json';
+  valuePreview: string;
+  isSecret: boolean;
+  isEditable: boolean;
+  updatedAt: string | null;
+  scope: 'system' | 'organization' | 'project' | 'integration' | 'repository';
+  source: string;
+};
+
+function maskPreview(label: string) {
+  return label ? `•••••••• ${label}` : '••••••••••••••••';
+}
+
+function stringifyPreview(value: unknown) {
+  if (value === null || value === undefined) return 'Not set';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value);
+}
+
+async function loadEnvironmentSettings(query: z.infer<typeof contextSchema>) {
+  const [systemSettings, projectSettings, integrations, repositoryConnection, oauthSecret, aiSecret] = await Promise.all([
+    prisma.systemSetting.findMany({
+      where: {
+        scope: query.organizationId ? 'ORGANIZATION' : 'SYSTEM',
+        organizationId: query.organizationId ?? null,
+      },
+      orderBy: { updatedAt: 'desc' },
+    }),
+    query.projectId
+      ? prisma.systemSetting.findMany({
+          where: { scope: 'PROJECT', projectId: query.projectId },
+          orderBy: { updatedAt: 'desc' },
+        })
+      : Promise.resolve([]),
+    query.projectId
+      ? prisma.integrationConnection.findMany({
+          where: { projectId: query.projectId },
+          orderBy: { updatedAt: 'desc' },
+        })
+      : Promise.resolve([]),
+    query.projectId
+      ? prisma.repositoryConnection.findUnique({ where: { projectId: query.projectId } })
+      : Promise.resolve(null),
+    getSecret('SYSTEM', 'oauth.google'),
+    getSecret(
+      query.projectId ? 'PROJECT' : query.organizationId ? 'ORGANIZATION' : 'SYSTEM',
+      query.projectId ? 'ai.project' : 'ai.org',
+      query.organizationId,
+      query.projectId,
+    ),
+  ]);
+
+  const oauth = oauthSecret ? decryptPayload<OAuthProviderConfig>(oauthSecret) : null;
+  const ai = aiSecret ? decryptPayload<AiProviderConfig>(aiSecret) : null;
+
+  const entries: EnvironmentSettingEntry[] = [];
+
+  if (ai) {
+    entries.push({
+      key: 'AI_PROVIDER',
+      displayType: 'text',
+      valuePreview: ai.preferredProvider,
+      isSecret: false,
+      isEditable: true,
+      updatedAt: aiSecret?.updatedAt.toISOString() ?? null,
+      scope: query.projectId ? 'project' : query.organizationId ? 'organization' : 'system',
+      source: query.projectId ? 'Project runtime config' : query.organizationId ? 'Organization runtime config' : 'System runtime config',
+    });
+    entries.push({
+      key: 'AI_MODEL',
+      displayType: 'text',
+      valuePreview: ai.model,
+      isSecret: false,
+      isEditable: true,
+      updatedAt: aiSecret?.updatedAt.toISOString() ?? null,
+      scope: query.projectId ? 'project' : query.organizationId ? 'organization' : 'system',
+      source: 'AI runtime config',
+    });
+    if (ai.openaiApiKey) {
+      entries.push({
+        key: 'OPENAI_API_KEY',
+        displayType: 'secret',
+        valuePreview: maskPreview('stored'),
+        isSecret: true,
+        isEditable: true,
+        updatedAt: aiSecret?.updatedAt.toISOString() ?? null,
+        scope: query.projectId ? 'project' : query.organizationId ? 'organization' : 'system',
+        source: 'Encrypted AI secret',
+      });
+    }
+    if (ai.openrouterApiKey) {
+      entries.push({
+        key: 'OPENROUTER_API_KEY',
+        displayType: 'secret',
+        valuePreview: maskPreview('stored'),
+        isSecret: true,
+        isEditable: true,
+        updatedAt: aiSecret?.updatedAt.toISOString() ?? null,
+        scope: query.projectId ? 'project' : query.organizationId ? 'organization' : 'system',
+        source: 'Encrypted AI secret',
+      });
+    }
+  }
+
+  if (oauth) {
+    entries.push({
+      key: 'GOOGLE_OAUTH_ENABLED',
+      displayType: 'status',
+      valuePreview: oauth.enabled ? 'Enabled' : 'Disabled',
+      isSecret: false,
+      isEditable: true,
+      updatedAt: oauthSecret?.updatedAt.toISOString() ?? null,
+      scope: 'system',
+      source: 'OAuth runtime config',
+    });
+    entries.push({
+      key: 'GOOGLE_OAUTH_CLIENT_ID',
+      displayType: 'text',
+      valuePreview: oauth.clientId || 'Not set',
+      isSecret: false,
+      isEditable: true,
+      updatedAt: oauthSecret?.updatedAt.toISOString() ?? null,
+      scope: 'system',
+      source: 'OAuth runtime config',
+    });
+    if (oauth.clientSecret) {
+      entries.push({
+        key: 'GOOGLE_OAUTH_CLIENT_SECRET',
+        displayType: 'secret',
+        valuePreview: maskPreview('stored'),
+        isSecret: true,
+        isEditable: true,
+        updatedAt: oauthSecret?.updatedAt.toISOString() ?? null,
+        scope: 'system',
+        source: 'Encrypted OAuth secret',
+      });
+    }
+  }
+
+  if (repositoryConnection) {
+    entries.push(
+      {
+        key: 'REPOSITORY_PROVIDER',
+        displayType: 'text',
+        valuePreview: repositoryConnection.provider,
+        isSecret: false,
+        isEditable: false,
+        updatedAt: repositoryConnection.updatedAt.toISOString(),
+        scope: 'repository',
+        source: 'Repository connection',
+      },
+      {
+        key: 'REPOSITORY_FULL_NAME',
+        displayType: 'text',
+        valuePreview: repositoryConnection.fullName,
+        isSecret: false,
+        isEditable: false,
+        updatedAt: repositoryConnection.updatedAt.toISOString(),
+        scope: 'repository',
+        source: 'Repository connection',
+      },
+      {
+        key: 'DEFAULT_BRANCH',
+        displayType: 'text',
+        valuePreview: repositoryConnection.defaultBranch,
+        isSecret: false,
+        isEditable: false,
+        updatedAt: repositoryConnection.updatedAt.toISOString(),
+        scope: 'repository',
+        source: 'Repository connection',
+      },
+      {
+        key: 'WEBHOOK_STATUS',
+        displayType: 'status',
+        valuePreview: repositoryConnection.webhookStatus,
+        isSecret: false,
+        isEditable: false,
+        updatedAt: repositoryConnection.updatedAt.toISOString(),
+        scope: 'repository',
+        source: 'Repository connection',
+      },
+    );
+  }
+
+  for (const setting of projectSettings) {
+    if (setting.key === 'extension.connectedAt' || setting.key === 'onboarding_progress' || setting.key === 'onboarding_complete') {
+      entries.push({
+        key: setting.key.toUpperCase().replace(/[^A-Z0-9]+/g, '_'),
+        displayType: typeof setting.value === 'number' ? 'number' : typeof setting.value === 'string' ? 'text' : 'json',
+        valuePreview: stringifyPreview(setting.value),
+        isSecret: false,
+        isEditable: false,
+        updatedAt: setting.updatedAt.toISOString(),
+        scope: 'project',
+        source: 'Project setting',
+      });
+    }
+  }
+
+  for (const setting of systemSettings) {
+    if (setting.key === 'ai.meta' || setting.key === 'oauth.google.meta') {
+      entries.push({
+        key: setting.key.toUpperCase().replace(/[^A-Z0-9]+/g, '_'),
+        displayType: 'json',
+        valuePreview: stringifyPreview(setting.value),
+        isSecret: false,
+        isEditable: true,
+        updatedAt: setting.updatedAt.toISOString(),
+        scope: query.organizationId ? 'organization' : 'system',
+        source: 'Persisted metadata',
+      });
+    }
+  }
+
+  for (const integration of integrations) {
+    entries.push({
+      key: `${integration.type}_STATUS`,
+      displayType: 'status',
+      valuePreview: integration.name,
+      isSecret: false,
+      isEditable: true,
+      updatedAt: integration.updatedAt.toISOString(),
+      scope: 'integration',
+      source: 'Integration connection',
+    });
+
+    const config = integration.configJson as Record<string, unknown>;
+    Object.entries(config)
+      .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
+      .slice(0, 2)
+      .forEach(([configKey, value]) => {
+        entries.push({
+          key: `${integration.type}_${configKey}`.toUpperCase(),
+          displayType: typeof value === 'number' ? 'number' : 'text',
+          valuePreview: stringifyPreview(value),
+          isSecret: false,
+          isEditable: true,
+          updatedAt: integration.updatedAt.toISOString(),
+          scope: 'integration',
+          source: `${integration.type} config`,
+        });
+      });
+
+    const secret = await getSecret('PROJECT', `integration.${integration.type.toLowerCase()}`, undefined, query.projectId);
+    if (secret) {
+      entries.push({
+        key: `${integration.type}_CREDENTIALS`,
+        displayType: 'secret',
+        valuePreview: maskPreview('stored'),
+        isSecret: true,
+        isEditable: true,
+        updatedAt: secret.updatedAt.toISOString(),
+        scope: 'integration',
+        source: `${integration.type} encrypted secret`,
+      });
+    }
+  }
+
+  return {
+    entries: entries.sort((left, right) => {
+      const leftTime = left.updatedAt ? new Date(left.updatedAt).getTime() : 0;
+      const rightTime = right.updatedAt ? new Date(right.updatedAt).getTime() : 0;
+      return rightTime - leftTime;
+    }),
+  };
+}
+
+async function loadSettingsPayload(query: z.infer<typeof contextSchema>) {
+  const [systemSettings, projectSettings, integrations, repositoryConnection, oauthSecret, aiSecret] = await Promise.all([
+    prisma.systemSetting.findMany({
+      where: {
+        scope: query.organizationId ? 'ORGANIZATION' : 'SYSTEM',
+        organizationId: query.organizationId ?? null,
+      },
+    }),
+    query.projectId
+      ? prisma.systemSetting.findMany({ where: { scope: 'PROJECT', projectId: query.projectId } })
+      : Promise.resolve([]),
+    query.projectId
+      ? prisma.integrationConnection.findMany({ where: { projectId: query.projectId } })
+      : Promise.resolve([]),
+    query.projectId
+      ? prisma.repositoryConnection.findUnique({ where: { projectId: query.projectId } })
+      : Promise.resolve(null),
+    getSecret('SYSTEM', 'oauth.google'),
+    getSecret(
+      query.projectId ? 'PROJECT' : query.organizationId ? 'ORGANIZATION' : 'SYSTEM',
+      query.projectId ? 'ai.project' : 'ai.org',
+      query.organizationId,
+      query.projectId,
+    ),
+  ]);
+
+  const oauth = oauthSecret ? decryptPayload<OAuthProviderConfig>(oauthSecret) : null;
+  const ai = aiSecret ? decryptPayload<AiProviderConfig>(aiSecret) : null;
+
+  const integrationSecrets = query.projectId
+    ? await Promise.all(
+        integrations.map(async (integration: IntegrationConnection) => {
+          const secret = await getSecret('PROJECT', `integration.${integration.type.toLowerCase()}`, undefined, query.projectId);
+          const decrypted = secret ? decryptPayload<Record<string, unknown>>(secret) : null;
+          const view = isSupportedIntegrationType(integration.type)
+            ? toIntegrationSecretPreview(integration.type, integration.configJson as Record<string, unknown>, decrypted)
+            : {
+                hasStoredSecret: Boolean(secret),
+                secretPreview: [] as string[],
+                health: {
+                  isConfigured: Boolean(secret),
+                  missing: [] as string[],
+                },
+              };
+          return {
+            id: integration.id,
+            type: integration.type,
+            name: integration.name,
+            configJson: integration.configJson,
+            hasStoredSecret: view.hasStoredSecret,
+            secretPreview: view.secretPreview,
+            health: view.health,
+          };
+        }),
+      )
+    : [];
+
+  return {
+    infrastructure: ['DATABASE_URL', 'NEXTAUTH_SECRET', 'SETTINGS_ENCRYPTION_KEY', 'INTERNAL_API_KEY'],
+    oauth: toOAuthSettingsView(oauth),
+    ai: toAiSettingsView(ai),
+    systemSettings: Object.fromEntries(systemSettings.map((item: SystemSetting) => [item.key, item.value])),
+    projectSettings: Object.fromEntries(projectSettings.map((item: SystemSetting) => [item.key, item.value])),
+    repositoryConnection: repositoryConnection
+      ? {
+          id: repositoryConnection.id,
+          provider: repositoryConnection.provider,
+          externalId: repositoryConnection.externalId,
+          owner: repositoryConnection.owner,
+          namespace: repositoryConnection.namespace,
+          repositoryName: repositoryConnection.repositoryName,
+          fullName: repositoryConnection.fullName,
+          repositoryUrl: repositoryConnection.repositoryUrl,
+          defaultBranch: repositoryConnection.defaultBranch,
+          installationId: repositoryConnection.installationId,
+          providerUser: repositoryConnection.providerUser,
+          webhookId: repositoryConnection.webhookId,
+          webhookStatus: repositoryConnection.webhookStatus,
+          webhookUrl: repositoryConnection.webhookUrl,
+          webhookLastError: repositoryConnection.webhookLastError,
+          lastSyncedAt: repositoryConnection.lastSyncedAt?.toISOString() ?? null,
+        }
+      : null,
+    integrations: integrationSecrets,
+  };
+}
+
 async function getSecret(scope: 'SYSTEM' | 'ORGANIZATION' | 'PROJECT', key: string, organizationId?: string, projectId?: string) {
   return prisma.encryptedSecret.findFirst({
     where: {
@@ -111,60 +468,16 @@ async function upsertSetting(scope: 'SYSTEM' | 'ORGANIZATION' | 'PROJECT', key: 
 }
 
 export async function registerSettingsRoutes(app: FastifyInstance) {
-  app.get('/settings', async (request) => {
+  app.get('/settings', {
+    schema: {
+      tags: ['settings'],
+      summary: 'Read settings payload',
+      description: 'Returns the consolidated settings payload used by the web settings pages.',
+    },
+  }, async (request) => {
     const startedAt = Date.now();
     const query = contextSchema.parse(request.query);
-
-    const [systemSettings, projectSettings, integrations, repositoryConnection, oauthSecret, aiSecret] = await Promise.all([
-      prisma.systemSetting.findMany({
-        where: {
-          scope: query.organizationId ? 'ORGANIZATION' : 'SYSTEM',
-          organizationId: query.organizationId ?? null,
-        },
-      }),
-      query.projectId
-        ? prisma.systemSetting.findMany({ where: { scope: 'PROJECT', projectId: query.projectId } })
-        : Promise.resolve([]),
-      query.projectId
-        ? prisma.integrationConnection.findMany({ where: { projectId: query.projectId } })
-        : Promise.resolve([]),
-      query.projectId
-        ? prisma.repositoryConnection.findUnique({ where: { projectId: query.projectId } })
-        : Promise.resolve(null),
-      getSecret('SYSTEM', 'oauth.google'),
-      getSecret(query.projectId ? 'PROJECT' : query.organizationId ? 'ORGANIZATION' : 'SYSTEM', query.projectId ? 'ai.project' : 'ai.org', query.organizationId, query.projectId),
-    ]);
-
-    const oauth = oauthSecret ? decryptPayload<OAuthProviderConfig>(oauthSecret) : null;
-    const ai = aiSecret ? decryptPayload<AiProviderConfig>(aiSecret) : null;
-
-    const integrationSecrets = query.projectId
-      ? await Promise.all(
-          integrations.map(async (integration: IntegrationConnection) => {
-            const secret = await getSecret('PROJECT', `integration.${integration.type.toLowerCase()}`, undefined, query.projectId);
-            const decrypted = secret ? decryptPayload<Record<string, unknown>>(secret) : null;
-            const view = isSupportedIntegrationType(integration.type)
-              ? toIntegrationSecretPreview(integration.type, integration.configJson as Record<string, unknown>, decrypted)
-              : {
-                  hasStoredSecret: Boolean(secret),
-                  secretPreview: [] as string[],
-                  health: {
-                    isConfigured: Boolean(secret),
-                    missing: [] as string[],
-                  },
-                };
-            return {
-              id: integration.id,
-              type: integration.type,
-              name: integration.name,
-              configJson: integration.configJson,
-              hasStoredSecret: view.hasStoredSecret,
-              secretPreview: view.secretPreview,
-              health: view.health,
-            };
-          }),
-        )
-      : [];
+    const payload = await loadSettingsPayload(query);
 
     const durationMs = Date.now() - startedAt;
     logEvent(request.log, 'settings.loaded', {
@@ -179,47 +492,48 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
       requestId: request.id,
       organizationId: query.organizationId,
       projectId: query.projectId,
-      systemSettingCount: systemSettings.length,
-      projectSettingCount: projectSettings.length,
-      integrationCount: integrationSecrets.length,
-      hasRepositoryConnection: Boolean(repositoryConnection),
-      hasOAuthSecret: Boolean(oauthSecret),
-      hasAiSecret: Boolean(aiSecret),
+      systemSettingCount: Object.keys(payload.systemSettings).length,
+      projectSettingCount: Object.keys(payload.projectSettings).length,
+      integrationCount: payload.integrations.length,
+      hasRepositoryConnection: Boolean(payload.repositoryConnection),
+      hasOAuthSecret: payload.oauth.hasStoredSecret,
+      hasAiSecret: payload.ai.hasOpenAiKey || payload.ai.hasOpenRouterKey,
       durationMs,
       slow: durationMs > 500,
     });
 
-    return {
-      infrastructure: ['DATABASE_URL', 'NEXTAUTH_SECRET', 'SETTINGS_ENCRYPTION_KEY', 'INTERNAL_API_KEY'],
-      oauth: toOAuthSettingsView(oauth),
-      ai: toAiSettingsView(ai),
-      systemSettings: Object.fromEntries(systemSettings.map((item: SystemSetting) => [item.key, item.value])),
-      projectSettings: Object.fromEntries(projectSettings.map((item: SystemSetting) => [item.key, item.value])),
-      repositoryConnection: repositoryConnection
-        ? {
-            id: repositoryConnection.id,
-            provider: repositoryConnection.provider,
-            externalId: repositoryConnection.externalId,
-            owner: repositoryConnection.owner,
-            namespace: repositoryConnection.namespace,
-            repositoryName: repositoryConnection.repositoryName,
-            fullName: repositoryConnection.fullName,
-            repositoryUrl: repositoryConnection.repositoryUrl,
-            defaultBranch: repositoryConnection.defaultBranch,
-            installationId: repositoryConnection.installationId,
-            providerUser: repositoryConnection.providerUser,
-            webhookId: repositoryConnection.webhookId,
-            webhookStatus: repositoryConnection.webhookStatus,
-            webhookUrl: repositoryConnection.webhookUrl,
-            webhookLastError: repositoryConnection.webhookLastError,
-            lastSyncedAt: repositoryConnection.lastSyncedAt?.toISOString() ?? null,
-          }
-        : null,
-      integrations: integrationSecrets,
-    };
+    return payload;
   });
 
-  app.post('/settings/oauth', async (request, reply) => {
+  app.get('/settings/export', {
+    schema: {
+      tags: ['settings'],
+      summary: 'Export settings payload',
+      description: 'Returns the sanitized settings export payload for the requested organization/project scope.',
+    },
+  }, async (request) => {
+    const query = contextSchema.parse(request.query);
+    return loadSettingsPayload(query);
+  });
+
+  app.get('/settings/environment', {
+    schema: {
+      tags: ['settings'],
+      summary: 'Read environment settings surface',
+      description: 'Returns the curated settings-backed environment and operational entries shown in project settings.',
+    },
+  }, async (request) => {
+    const query = contextSchema.parse(request.query);
+    return loadEnvironmentSettings(query);
+  });
+
+  app.post('/settings/oauth', {
+    schema: {
+      tags: ['settings'],
+      summary: 'Save OAuth settings',
+      description: 'Stores Google OAuth provider settings used by the runtime settings page.',
+    },
+  }, async (request, reply) => {
     try {
       const payload = oauthSchema.parse(request.body);
       const existingSecret = await getSecret('SYSTEM', 'oauth.google');
@@ -260,7 +574,13 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post('/settings/ai', async (request, reply) => {
+  app.post('/settings/ai', {
+    schema: {
+      tags: ['settings'],
+      summary: 'Save AI runtime settings',
+      description: 'Stores AI provider/model settings for organization or project runtime configuration.',
+    },
+  }, async (request, reply) => {
     try {
       const payload = aiSchema.parse(request.body);
 
@@ -301,7 +621,13 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post('/settings/integrations/secret', async (request, reply) => {
+  app.post('/settings/integrations/secret', {
+    schema: {
+      tags: ['settings', 'integrations'],
+      summary: 'Save integration secret',
+      description: 'Stores encrypted integration credentials for a project integration.',
+    },
+  }, async (request, reply) => {
     try {
       const payload = integrationSecretSchema.parse(request.body);
       const key = `integration.${payload.type.toLowerCase()}`;
@@ -329,7 +655,13 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post('/settings/repositories/secret', async (request, reply) => {
+  app.post('/settings/repositories/secret', {
+    schema: {
+      tags: ['settings', 'repositories'],
+      summary: 'Save repository secret',
+      description: 'Stores encrypted repository provider credentials used by repository-connected flows.',
+    },
+  }, async (request, reply) => {
     try {
       const payload = repositorySecretSchema.parse(request.body);
       const key = `repository.${payload.provider.toLowerCase()}`;

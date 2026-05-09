@@ -1,4 +1,6 @@
 import Fastify from 'fastify';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 import type { FastifyRequest } from 'fastify';
 
 import { env } from './env.js';
@@ -12,8 +14,53 @@ import { registerSettingsRoutes } from './routes/settings.js';
 const app = Fastify({ logger: true });
 const requestStartedAt = new WeakMap<FastifyRequest, number>();
 
+await app.register(swagger, {
+  openapi: {
+    info: {
+      title: 'DioTest Internal API',
+      description: 'Internal DioTest API used by the web app, onboarding flows, settings, and action orchestration.',
+      version: '1.0.0',
+    },
+    servers: [
+      {
+        url: `http://${env.HOST}:${env.PORT}`,
+        description: 'Local API server',
+      },
+    ],
+    components: {
+      securitySchemes: {
+        internalApiKey: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'x-internal-api-key',
+          description: 'Internal API key required for authenticated DioTest API calls.',
+        },
+      },
+    },
+    security: [{ internalApiKey: [] }],
+  },
+});
+
+await app.register(swaggerUi, {
+  routePrefix: '/docs',
+  uiConfig: {
+    docExpansion: 'list',
+    deepLinking: true,
+  },
+  staticCSP: true,
+});
+
+function isPublicRoute(url: string) {
+  return (
+    url === '/' ||
+    url === '/health' ||
+    url === '/ready' ||
+    url.startsWith('/docs')
+  );
+}
+
 app.addHook('onRequest', async (request, reply) => {
-  if (request.url === '/health' || request.url === '/ready') {
+  if (isPublicRoute(request.url)) {
     return;
   }
 
@@ -39,7 +86,7 @@ app.addHook('onRequest', async (request, reply) => {
 });
 
 app.addHook('onResponse', async (request, reply) => {
-  if (request.url === '/health' || request.url === '/ready') {
+  if (isPublicRoute(request.url)) {
     return;
   }
 
@@ -88,10 +135,21 @@ app.setErrorHandler((error: Error, request, reply) => {
   });
 });
 
-app.get('/', async () => ({
-  service: 'diotest-api',
-  status: 'ok',
-}));
+app.get(
+  '/',
+  {
+    schema: {
+      tags: ['meta'],
+      summary: 'API service status',
+      description: 'Returns a minimal status payload for the DioTest API service.',
+    },
+  },
+  async () => ({
+    service: 'diotest-api',
+    status: 'ok',
+    docs: '/docs',
+  }),
+);
 
 await registerHealthRoutes(app);
 await registerInternalRoutes(app);

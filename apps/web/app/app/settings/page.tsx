@@ -1,205 +1,100 @@
 import Link from 'next/link';
 
-import { SignOutButton } from '@/components/auth/sign-out-button';
-import {
-  AiSettingsCard,
-  IntegrationHealthCards,
-  IntegrationSecretsCard,
-  OAuthSettingsCard,
-  RepositoryHealthCard,
-} from '@/components/settings/settings-panels';
-import { BackendUnavailable } from '@/components/system/backend-unavailable';
-import { LogoLockup } from '@/components/ui/logo';
-import { getSettings } from '@/lib/api';
+import { Badge } from '@/components/ui/badge';
+import { SettingsPageFrame } from '@/components/settings/settings-page-frame';
+import { SettingsCardLink, SettingsOverviewStrip } from '@/components/settings/settings-route-panels';
+import { getOrganizationInvites, getSettings } from '@/lib/api';
 import { requireOnboardedUser } from '@/lib/guards';
 
-const productTabs = ['Analysis', 'Recorder', 'Agents', 'Settings'] as const;
-const sideNav = ['Dashboard', 'PR Analysis', 'Live Session', 'Test Vault', 'Analytics'] as const;
-const settingSections = ['Connection Health', 'AI / Runtime', 'Integrations', 'Auth / OAuth', 'Advanced'] as const;
-
-export default async function SettingsPage() {
-  const { bootstrap, unavailable, unavailableMessage } = await requireOnboardedUser();
-
-  if (unavailable || !bootstrap) {
-    return (
-      <main className="min-h-screen bg-[#0a0b0e] text-white">
-        <BackendUnavailable message={unavailableMessage ?? 'DioTest could not load settings data.'} />
-      </main>
-    );
-  }
+export default async function SettingsOverviewPage() {
+  const { bootstrap } = await requireOnboardedUser();
 
   const settings = await getSettings({
-    organizationId: bootstrap.organization?.id,
-    projectId: bootstrap.project?.id,
+    organizationId: bootstrap?.organization?.id,
+    projectId: bootstrap?.project?.id,
   });
 
-  const envRows = [
-    ['API_SECRET_KEY', settings.oauth.clientSecretPreview || '••••••••••••••••'],
-    ['BASE_URL', process.env.NEXTAUTH_URL || 'https://app.diotest.studio'],
-    ['DB_PASSWORD', '••••••••••••••••'],
-    ['MAX_RETRY_ATTEMPTS', '5'],
-  ];
+  const invites = bootstrap?.organization
+    ? await getOrganizationInvites(bootstrap.organization.id).catch(() => ({ invites: [] }))
+    : { invites: [] };
+
+  const extensionConnectedAt = typeof settings.projectSettings['extension.connectedAt'] === 'string'
+    ? String(settings.projectSettings['extension.connectedAt'])
+    : null;
+  const connectedCount = settings.integrations.filter((integration) => integration.health.isConfigured).length;
+
   return (
-    <main className="min-h-screen bg-[#0a0b0e] text-white">
-      <div className="grid min-h-screen lg:grid-cols-[178px_minmax(0,1fr)]">
-        <aside className="flex flex-col border-r border-white/6 bg-[#101115]">
-          <div className="border-b border-white/6 px-4 py-4">
-            <LogoLockup subtle />
-            <div className="mt-3 rounded-[4px] border border-white/6 bg-[#17181d] px-3 py-2 text-xs text-[#6d6f76]">
-              {bootstrap.project?.slug ?? 'diotest-agent'}
-            </div>
+    <SettingsPageFrame
+      eyebrow="Settings / General"
+      title="Project Settings"
+      description="Manage your agent workflows, connected platforms, runtime preferences, and secure operational settings from one consistent settings surface."
+      actions={
+        bootstrap?.project ? (
+          <>
+            <Link href={`/api/settings/export?projectId=${bootstrap.project.id}${bootstrap.organization?.id ? `&organizationId=${bootstrap.organization.id}` : ''}`} className="inline-flex h-12 items-center rounded-md border border-white/10 bg-[#16171b] px-5 text-sm font-medium text-zinc-200 transition-all duration-150 hover:bg-[#1d1f24] active:scale-95">
+              Export Settings
+            </Link>
+            <Link href="/app/settings/project" className="inline-flex h-12 items-center rounded-md bg-[#53dca4] px-5 text-sm font-bold text-[#053524] transition-all duration-150 hover:opacity-90 active:scale-95">
+              Review Project
+            </Link>
+          </>
+        ) : null
+      }
+    >
+      <SettingsOverviewStrip
+        organizationName={bootstrap?.organization?.name ?? 'Not configured'}
+        organizationMeta={`${bootstrap?.organization?.memberCount ?? 0} members`}
+        projectName={bootstrap?.project?.name ?? 'Not configured'}
+        projectMeta={bootstrap?.project?.slug ?? 'No active project'}
+        repositoryName={settings.repositoryConnection?.fullName ?? 'No repository connected'}
+        repositoryMeta={settings.repositoryConnection?.webhookStatus ?? 'Pending'}
+        integrationsValue={`${connectedCount}/${settings.integrations.length}`}
+        integrationsMeta={invites.invites.length > 0 ? `${invites.invites.length} pending invites` : 'No pending invites'}
+      />
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="settings-card p-5 lg:col-span-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={settings.repositoryConnection ? 'success' : 'warn'}>
+              {settings.repositoryConnection ? 'Repository connected' : 'Repository pending'}
+            </Badge>
+            <Badge tone={connectedCount === settings.integrations.length && settings.integrations.length > 0 ? 'success' : 'warn'}>
+              {connectedCount} ready integration{connectedCount === 1 ? '' : 's'}
+            </Badge>
+            <Badge tone={extensionConnectedAt ? 'success' : 'warn'}>
+              {extensionConnectedAt ? 'Extension verified' : 'Extension pending'}
+            </Badge>
           </div>
-          <div className="px-3 py-4">
-            <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#55575e]">Navigation</div>
-            <div className="space-y-1">
-              {sideNav.map((item) => (
-                <div
-                  key={item}
-                  className={`rounded-[3px] px-3 py-2 text-sm ${item === 'Analytics' ? 'bg-[#1f2c25] text-[#53dca4]' : 'text-[#868890] hover:bg-white/[0.03]'}`}
-                >
-                  {item}
-                </div>
-              ))}
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="settings-card-muted p-4">
+              <div className="text-sm font-semibold text-zinc-50">Extension verification</div>
+              <div className="mt-2 text-sm leading-6 text-zinc-400">{extensionConnectedAt ?? 'The browser extension has not been verified for this project yet.'}</div>
             </div>
-          </div>
-          <div className="mt-auto space-y-3 px-4 pb-4 text-sm text-[#6f7178]">
-            <button className="flex h-10 w-full items-center justify-center rounded-[4px] border border-white/6 bg-[#17181d]">
-              + New Analysis
-            </button>
-            <Link href="/docs/concepts" className="transition hover:text-white">Documentation</Link>
-            <Link href="/help/setup" className="transition hover:text-white">Support</Link>
-          </div>
-        </aside>
-
-        <section className="flex min-w-0 flex-col">
-          <header className="flex items-center justify-between border-b border-white/6 px-6 py-4">
-            <div className="flex items-center gap-7 text-sm font-medium">
-              <span className="text-white">DioTestStudio</span>
-              {productTabs.map((tab) => (
-                <span key={tab} className={tab === 'Settings' ? 'text-[#53dca4]' : 'text-[#8b8d94]'}>
-                  {tab}
-                </span>
-              ))}
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-[#8b8d94]">◦</span>
-              <span className="text-[#8b8d94]">⚙</span>
-              <span className="flex h-8 w-8 items-center justify-center rounded-full border border-white/8 bg-[#17181d]">◦</span>
-              <button className="h-9 rounded-[4px] bg-[#53dca4] px-4 text-sm font-semibold text-[#103223]">Run Test</button>
-              <SignOutButton variant="ghost" className="h-9 rounded-full border border-white/8 bg-[#1b1c21] px-3 text-white hover:bg-[#27292f]" />
-            </div>
-          </header>
-
-          <div className="space-y-8 px-8 py-8">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h1 className="text-[2.4rem] font-bold tracking-[-0.05em] text-white">Project Settings</h1>
-                <p className="mt-2 text-base leading-7 text-[#7e8087]">
-                  Manage your agent workflows, connected platforms, and secure credentials.
-                </p>
-              </div>
-              <div className="flex gap-3">
-                <button className="h-10 rounded-[4px] border border-white/6 px-4 text-sm text-[#c7c8cc]">Export Settings</button>
-                <button className="h-10 rounded-[4px] bg-[#53dca4] px-4 text-sm font-semibold text-[#103223] hover:bg-[#63e3af]">
-                  Save Changes
-                </button>
-              </div>
-            </div>
-
-            <div className="grid gap-8 xl:grid-cols-[180px_minmax(0,1fr)]">
-              <div className="space-y-3">
-                {settingSections.map((section) => (
-                  <div
-                    key={section}
-                    className={`rounded-[3px] px-3 py-2 text-sm ${
-                      section === 'Connection Health' ? 'bg-[#1f2c25] text-[#53dca4]' : 'text-[#8d8f96]'
-                    }`}
-                  >
-                    {section}
-                  </div>
-                ))}
-              </div>
-
-              <div className="space-y-8">
-                <section>
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-white">Connection Health</h2>
-                    <span className="text-sm text-[#53dca4]">
-                      {settings.integrations.length + (settings.repositoryConnection ? 1 : 0)} configured
-                    </span>
-                  </div>
-                  <div className="grid gap-5 xl:grid-cols-2">
-                    <RepositoryHealthCard connection={settings.repositoryConnection} />
-                    {bootstrap.project ? <IntegrationHealthCards projectId={bootstrap.project.id} integrations={settings.integrations} /> : null}
-                  </div>
-                </section>
-
-                <section>
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-white">AI / Runtime</h2>
-                    <Link href="/docs/concepts/settings-and-integrations" className="text-sm text-[#53dca4] hover:text-[#7be8bb]">
-                      What these settings mean
-                    </Link>
-                  </div>
-                  <div className="grid gap-5 xl:grid-cols-2">
-                    <AiSettingsCard organizationId={bootstrap.organization?.id} projectId={bootstrap.project?.id} ai={settings.ai} />
-                  </div>
-                </section>
-
-                <section>
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-white">Integrations</h2>
-                    <Link href="/docs/concepts/settings-and-integrations" className="text-sm text-[#53dca4] hover:text-[#7be8bb]">
-                      Connection states explained
-                    </Link>
-                  </div>
-                  {bootstrap.project ? <IntegrationSecretsCard projectId={bootstrap.project.id} integrations={settings.integrations} /> : null}
-                </section>
-
-                <section>
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-white">Auth / OAuth</h2>
-                    <Link href="/docs/env-setup" className="text-sm text-[#53dca4] hover:text-[#7be8bb]">
-                      Credential setup guide
-                    </Link>
-                  </div>
-                  <div className="grid gap-5 xl:grid-cols-2">
-                    <OAuthSettingsCard oauth={settings.oauth} />
-                  </div>
-                </section>
-
-                <section className="space-y-6">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-white">Advanced</h2>
-                    <button className="rounded-[3px] bg-[#1b1c21] px-3 py-1.5 text-xs text-white">+ New Variable</button>
-                  </div>
-                  <div className="overflow-hidden rounded-[4px] border border-white/6 bg-[#17181d]">
-                    <div className="grid grid-cols-[1.15fr_1fr_140px] border-b border-white/6 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#666870]">
-                      <div>Key</div>
-                      <div>Value</div>
-                      <div>Last Updated</div>
-                    </div>
-                    {envRows.map(([key, value], index) => (
-                      <div key={key} className="grid grid-cols-[1.15fr_1fr_140px] px-5 py-4 text-sm text-[#d4d4d8]">
-                        <div>{key}</div>
-                        <div className="text-[#8d8f96]">{value}</div>
-                        <div className="text-[#6f7178]">{['Oct 24, 2023', 'Oct 20, 2023', 'Sep 19, 2023', 'Aug 30, 2023'][index]}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="rounded-[4px] border border-[#5a2424] bg-[#1a1113] p-6">
-                    <div className="text-lg font-semibold text-[#ff8780]">Dangerous Zone</div>
-                    <p className="mt-2 max-w-[36rem] text-sm leading-6 text-[#9c7c7c]">
-                      Permanently delete this project and all associated agent test data. This action is irreversible.
-                    </p>
-                    <button className="mt-4 rounded-[3px] bg-[#7b2d2d] px-4 py-2 text-sm font-semibold text-white">Delete Project</button>
-                  </div>
-                </section>
+            <div className="settings-card-muted p-4">
+              <div className="text-sm font-semibold text-zinc-50">Webhook health</div>
+              <div className="mt-2 text-sm leading-6 text-zinc-400">
+                {settings.repositoryConnection?.webhookLastError ?? settings.repositoryConnection?.webhookStatus ?? 'No repository webhook is configured yet.'}
               </div>
             </div>
           </div>
-        </section>
+        </div>
+        <div className="settings-card p-5">
+          <div className="settings-kicker">Current scope</div>
+          <div className="mt-3 text-lg font-semibold text-white">{bootstrap?.organization?.name ?? 'Organization pending'}</div>
+          <div className="mt-1 text-sm text-zinc-400">{bootstrap?.project?.name ?? 'Project pending'}</div>
+          <div className="mt-4 space-y-2 text-sm text-zinc-400">
+            <div>Role: <span className="text-zinc-100">{bootstrap?.organization?.currentUserRole ?? 'member'}</span></div>
+            <div>Runtime: <span className="text-zinc-100">{settings.ai.preferredProvider} / {settings.ai.model}</span></div>
+          </div>
+        </div>
       </div>
-    </main>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <SettingsCardLink href="/app/settings/organization" title="Organization" body="Manage workspace identity, members, invites, roles, ownership transfer, and deletion controls." />
+        <SettingsCardLink href="/app/settings/project" title="Project" body="Review project identity, repository health, extension status, curated environment settings, and project danger controls." />
+        <SettingsCardLink href="/app/settings/integrations" title="Integrations" body="Inspect connected providers, manage credentials, and repair incomplete integration setups." />
+        <SettingsCardLink href="/app/settings/runtime" title="Runtime" body="Update AI provider preferences, OAuth configuration, exports, and operational actions." />
+      </div>
+    </SettingsPageFrame>
   );
 }

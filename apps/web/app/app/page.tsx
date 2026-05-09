@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import { SignOutButton } from '@/components/auth/sign-out-button';
+import { WorkspaceMenu } from '@/components/app-shell/workspace-menu';
 import { BackendUnavailable } from '@/components/system/backend-unavailable';
 import { Badge } from '@/components/ui/badge';
 import { LogoLockup } from '@/components/ui/logo';
@@ -150,12 +150,17 @@ export default async function AppHomePage() {
               <span className="text-[#8b8d94]">Runs</span>
             </div>
             <div className="flex items-center gap-4">
-              <div className="rounded-[4px] border border-white/8 bg-[#1b1c21] px-4 py-2 text-sm text-[#d1d2d6]">
-                Org: {bootstrap.organization?.name ?? 'Organization Switcher'}
-              </div>
-              <div className="text-[#8b8d94]">◦</div>
-              <div className="text-[#8b8d94]">⚙</div>
-              <SignOutButton variant="ghost" className="h-9 rounded-full border border-white/8 bg-[#1b1c21] px-3 text-white" />
+              <Link href="/app/settings" className="rounded-[4px] border border-white/8 bg-[#1b1c21] px-4 py-2 text-sm text-white transition hover:bg-[#27292f]">
+                Settings
+              </Link>
+              <WorkspaceMenu
+                userLabel={user.name ?? user.email ?? 'DioTest User'}
+                userSubLabel={user.email}
+                organizationName={bootstrap.organization?.name}
+                projectName={bootstrap.project?.name}
+                repositoryName={bootstrap.repositoryConnection?.fullName}
+                integrationCount={bootstrap.integrations.length}
+              />
             </div>
           </header>
 

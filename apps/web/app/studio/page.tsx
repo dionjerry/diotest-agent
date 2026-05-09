@@ -1,6 +1,8 @@
+import Link from 'next/link';
+
 import { ActionConsole } from '@/components/studio/action-console';
 import { BackendUnavailable } from '@/components/system/backend-unavailable';
-import { SignOutButton } from '@/components/auth/sign-out-button';
+import { WorkspaceMenu } from '@/components/app-shell/workspace-menu';
 import { Badge } from '@/components/ui/badge';
 import { LogoLockup } from '@/components/ui/logo';
 import { getActions } from '@/lib/api';
@@ -64,7 +66,7 @@ export default async function StudioPage() {
         <div className="flex items-center gap-8">
           <LogoLockup studio />
           <nav className="flex items-center gap-7 text-sm font-medium">
-            <span className="text-[#8b8d94]">Dashboard</span>
+            <Link href="/app" className="text-[#8b8d94] hover:text-white">Dashboard</Link>
             <span className="text-[#53dca4]">Studio</span>
             <span className="text-[#8b8d94]">Library</span>
             <span className="text-[#8b8d94]">Runs</span>
@@ -74,11 +76,17 @@ export default async function StudioPage() {
           <div className="rounded-[4px] border border-white/8 bg-[#14151a] px-4 py-2 text-sm text-[#6e7078]">
             Search tests or logs...
           </div>
-          <div className="text-sm text-[#8b8d94]">{bootstrap.organization?.name ?? 'Organization Switcher'}</div>
-          <span className="text-[#8b8d94]">◦</span>
-          <span className="text-[#8b8d94]">⚙</span>
-          <span className="flex h-8 w-8 items-center justify-center rounded-full border border-white/8 bg-[#17181d]">◦</span>
-          <SignOutButton variant="ghost" className="h-9 rounded-full border border-white/8 bg-[#1b1c21] px-3 text-white hover:bg-[#27292f]" />
+          <Link href="/app/settings" className="rounded-[4px] border border-white/8 bg-[#1b1c21] px-4 py-2 text-sm text-white transition hover:bg-[#27292f]">
+            Settings
+          </Link>
+          <WorkspaceMenu
+            userLabel={user.name ?? user.email ?? 'DioTest User'}
+            userSubLabel={user.email}
+            organizationName={bootstrap.organization?.name}
+            projectName={bootstrap.project?.name}
+            repositoryName={bootstrap.repositoryConnection?.fullName}
+            integrationCount={bootstrap.integrations.length}
+          />
         </div>
       </header>
 
