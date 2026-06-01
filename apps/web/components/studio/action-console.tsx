@@ -32,16 +32,51 @@ export function ActionConsole({
   projectId,
   actions,
   tasks,
+  recorderSessions,
 }: {
   projectId: string;
   actions: ActionsResponse['actions'];
   tasks: ActionsResponse['tasks'];
+  recorderSessions: Array<{
+    id: string;
+    name: string;
+    domain: string;
+    status: string;
+    startedAt: string;
+  }>;
 }) {
   const [createState, createAction] = useActionState(createAgentActionAction, initialState);
   const [approveState, approveAction] = useActionState(approveAgentActionAction, initialState);
   const [actionType, setActionType] = useState<'analyze_pr' | 'generate_tests' | 'generate_from_recorder' | 'run_browser_checks' | 'sync_jira' | 'sync_trello' | 'export_sheets'>('analyze_pr');
   const [integrationMode, setIntegrationMode] = useState<'create' | 'status_check'>('create');
+  const [selectedRecorderSessionId, setSelectedRecorderSessionId] = useState(recorderSessions[0]?.id ?? '');
   const generatedInputJson = useMemo(() => {
+    if (actionType === 'generate_tests') {
+      return JSON.stringify({
+        includeDeepScan: true,
+        source: 'studio',
+        focus: 'Generate manual and automated test ideas from current project and repository state.',
+      }, null, 2);
+    }
+
+    if (actionType === 'generate_from_recorder') {
+      return JSON.stringify({
+        sessionId: selectedRecorderSessionId || null,
+        options: {
+          includeVision: true,
+          includePageSummaries: true,
+        },
+      }, null, 2);
+    }
+
+    if (actionType === 'run_browser_checks') {
+      return JSON.stringify({
+        source: 'studio',
+        projectSlug: 'demo-project',
+        focus: 'Validate auth, onboarding, checkout, and settings flows that are visible in a browser.',
+      }, null, 2);
+    }
+
     if (actionType === 'sync_jira') {
       return JSON.stringify({
         mode: integrationMode,
@@ -63,8 +98,8 @@ export function ActionConsole({
       });
     }
 
-    return '{"riskLevel":"high","source":"studio"}';
-  }, [actionType, integrationMode]);
+    return JSON.stringify({ riskLevel: 'high', source: 'studio' }, null, 2);
+  }, [actionType, integrationMode, selectedRecorderSessionId]);
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_380px]">
@@ -126,15 +161,42 @@ export function ActionConsole({
                 <Label>Title</Label>
                 <Input name="title" defaultValue="Analyze checkout PR" placeholder="Short action title" />
               </div>
-              <div>
-                <Label>Target ID</Label>
-                <Input name="targetId" placeholder="Optional id like PR-47" />
-              </div>
+              {actionType === 'generate_from_recorder' ? (
+                <div>
+                  <Label>Recorder session</Label>
+                  <select
+                    name="targetId"
+                    value={selectedRecorderSessionId}
+                    onChange={(event) => setSelectedRecorderSessionId(event.target.value)}
+                    className="h-11 w-full rounded-2xl border border-line bg-zinc-950/70 px-4 text-sm text-text outline-none focus:border-brand/70 focus:ring-4 focus:ring-brand/10"
+                  >
+                    {recorderSessions.length === 0 ? (
+                      <option value="">No generated or review sessions available</option>
+                    ) : (
+                      recorderSessions.map((session) => (
+                        <option key={session.id} value={session.id}>
+                          {session.name} · {session.domain}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <Label>Target ID</Label>
+                  <Input name="targetId" placeholder="Optional id like PR-47" />
+                </div>
+              )}
             </div>
             <div>
               <Label>Description</Label>
               <Textarea name="description" placeholder="Explain what the agent should do and why." className="min-h-24" />
             </div>
+            {actionType === 'generate_from_recorder' && recorderSessions.length === 0 ? (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-200">
+                Sync a recorder session first. Stored sessions are now the primary source for hosted recorder generation.
+              </div>
+            ) : null}
             {(actionType === 'sync_jira' || actionType === 'sync_trello') ? (
               <div className="grid gap-5 md:grid-cols-3">
                 <div>
