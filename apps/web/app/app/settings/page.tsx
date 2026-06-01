@@ -1,6 +1,8 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
+import { SkeletonCard } from '@/components/settings/skeleton-card';
 import { SettingsPageFrame } from '@/components/settings/settings-page-frame';
 import { SettingsCardLink, SettingsOverviewStrip } from '@/components/settings/settings-route-panels';
 import { getOrganizationInvites, getSettings } from '@/lib/api';

@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import Link from 'next/link';
 
 import {
@@ -19,9 +18,9 @@ import {
   type OnboardingProgress,
   type OnboardingStage,
 } from '@/lib/onboarding-state';
-import { decryptPayload, encryptPayload } from '@/lib/encryption';
+import { getOrCreateExtensionApiKey } from '@/lib/extension-key';
 import { prisma } from '@/lib/prisma';
-import { logServerEvent, logServerDebug } from '@/lib/server-logger';
+import { logServerEvent } from '@/lib/server-logger';
 import { absoluteUrl, slugify } from '@/lib/utils';
 
 type PageProps = {
@@ -81,55 +80,6 @@ const sidebarLabels: Array<[StageKey, string]> = [
   ['finalize', 'Review & Launch'],
 ];
 
-async function getOrCreateExtensionApiKey(projectId: string): Promise<string> {
-  const existing = await prisma.encryptedSecret.findFirst({
-    where: {
-      scope: 'PROJECT',
-      projectId,
-      key: 'extension.apiKey',
-    },
-  });
-
-  if (existing) {
-    try {
-      const decrypted = decryptPayload<{ apiKey?: string }>({
-        cipherText: existing.cipherText,
-        iv: existing.iv,
-        tag: existing.tag,
-      });
-      if (decrypted.apiKey) return decrypted.apiKey;
-    } catch {
-      logServerDebug('extension.key.decode_failed', { projectId });
-    }
-  }
-
-  const token = randomBytes(24).toString('hex');
-  const encoded = Buffer.from(projectId).toString('base64url');
-  const apiKey = `dto_${encoded}_${token}`;
-
-  const encrypted = encryptPayload({ apiKey });
-  await prisma.encryptedSecret.deleteMany({
-    where: {
-      scope: 'PROJECT',
-      projectId,
-      key: 'extension.apiKey',
-    },
-  });
-
-  await prisma.encryptedSecret.create({
-    data: {
-      scope: 'PROJECT',
-      projectId,
-      key: 'extension.apiKey',
-      cipherText: encrypted.cipherText,
-      iv: encrypted.iv,
-      tag: encrypted.tag,
-      algorithm: encrypted.algorithm,
-    },
-  });
-
-  return apiKey;
-}
 
 function resolveRepositoryRouteError(errorCode: string | undefined, detail: string | undefined): RepositoryRouteError | null {
   if (!errorCode) return null;

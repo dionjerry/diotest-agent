@@ -9,16 +9,9 @@ loadEnvConfig(repoRoot);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  distDir: process.env.DIOTEST_NEXT_DIST_DIR || '.next',
   experimental: {
     devtoolSegmentExplorer: false,
-  },
-  webpack: (config, { dev }) => {
-    if (dev) {
-      // Prefer slower but deterministic rebuilds over flaky filesystem cache corruption in local dev.
-      config.cache = false;
-    }
-
-    return config;
   },
   onDemandEntries: {
     maxInactiveAge: 60 * 1000,

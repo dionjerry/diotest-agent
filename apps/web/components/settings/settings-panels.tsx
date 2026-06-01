@@ -9,6 +9,7 @@ import {
   revokeOrganizationInviteAction,
   queueBrowserChecksAction,
   saveAiSettingsAction,
+  testAiSettingsAction,
   saveIntegrationConfigAction,
   saveIntegrationSecretAction,
   saveOAuthSettingsAction,
@@ -70,7 +71,7 @@ export function OAuthSettingsCard({
       </div>
       <form action={formAction} className="mt-6 space-y-5">
         {organizationId ? <input type="hidden" name="organizationId" value={organizationId} /> : null}
-        <label className="flex items-center gap-3 rounded-lg border border-line bg-zinc-800/60/20 px-4 py-3 text-sm text-text">
+        <label className="flex items-center gap-3 rounded-lg border border-line bg-zinc-800/20 px-4 py-3 text-sm text-text">
           <input type="checkbox" name="enabled" defaultChecked={oauth.enabled} disabled={!canManage} className="h-4 w-4 accent-emerald-500" />
           Enable Google OAuth sign-in for this deployment
         </label>
@@ -104,7 +105,7 @@ export function OAuthSettingsCard({
         {!canManage ? <FormMessage tone="muted">Read-only for members. Owners and admins can update runtime auth settings.</FormMessage> : null}
         <FormMessage tone="success">{state.success}</FormMessage>
         <FormMessage>{state.error}</FormMessage>
-        {canManage ? <SubmitButton idleLabel="Save OAuth config" pendingLabel="Saving OAuth config..." /> : null}
+        {canManage ? <SubmitButton idleLabel="Save OAuth config" pendingLabel="Saving OAuth config..." success={!!state.success} /> : null}
       </form>
     </div>
   );
@@ -146,7 +147,7 @@ export function UserProfileCard({
         </FormMessage>
         <FormMessage tone="success">{state.success}</FormMessage>
         <FormMessage>{state.error}</FormMessage>
-        <SubmitButton idleLabel="Save user profile" pendingLabel="Saving user profile..." />
+        <SubmitButton idleLabel="Save user profile" pendingLabel="Saving user profile..." success={!!state.success} />
       </form>
     </div>
   );
@@ -251,14 +252,17 @@ export function OrganizationProfileCard({
           {!canManageOrg ? <FormMessage tone="muted">Read-only for members. Owners and admins can update organization details.</FormMessage> : null}
           <FormMessage tone="success">{saveState.success}</FormMessage>
           <FormMessage>{saveState.error}</FormMessage>
-          {canManageOrg ? <SubmitButton idleLabel="Save organization profile" pendingLabel="Saving organization..." /> : null}
+          {canManageOrg ? <SubmitButton idleLabel="Save organization profile" pendingLabel="Saving organization..." success={!!saveState.success} /> : null}
         </form>
       </div>
 
       {/* Team Members Section */}
       <div className="border-b border-line p-6">
         <div className="mb-6 flex items-center justify-between">
-          <h3 className="settings-kicker text-soft">Team members</h3>
+          <div className="mb-4 flex items-center gap-2">
+            <SettingsIcon name="organization" className="h-4 w-4 text-soft" />
+            <h3 className="settings-kicker text-soft">Team members</h3>
+          </div>
           {canInvite && (
             <Button
               variant="ghost"
@@ -278,7 +282,7 @@ export function OrganizationProfileCard({
             }`}
           >
             <div className="min-h-0">
-              <form action={inviteAction} className="space-y-5 rounded-lg border border-line bg-zinc-800/60/20 p-6">
+              <form action={inviteAction} className="space-y-5 rounded-lg border border-line bg-zinc-800/20 p-6">
                 <input type="hidden" name="organizationId" value={organization.id} />
                 <div>
                   <label className="block text-sm font-medium text-text">Email address</label>
@@ -289,7 +293,7 @@ export function OrganizationProfileCard({
                   <select
                     name="role"
                     defaultValue="member"
-                    className="h-11 w-full rounded-md border border-line bg-zinc-800/60 px-4 text-sm text-text outline-none focus:border-brand/70 focus:ring-4 focus:ring-brand/10"
+                    className="h-11 w-full rounded-md border border-line bg-zinc-800/40 px-4 text-sm text-text outline-none focus:border-brand/70 focus:ring-4 focus:ring-brand/10"
                   >
                     <option value="member">Member</option>
                     <option value="admin">Admin</option>
@@ -303,7 +307,7 @@ export function OrganizationProfileCard({
                 </FormMessage>
                 <FormMessage tone="success">{inviteState.success}</FormMessage>
                 <FormMessage>{inviteState.error}</FormMessage>
-                <SubmitButton idleLabel="Send invitation" pendingLabel="Sending..." />
+                <SubmitButton idleLabel="Send invitation" pendingLabel="Sending..." success={!!inviteState.success} />
               </form>
             </div>
           </div>
@@ -312,12 +316,12 @@ export function OrganizationProfileCard({
         {/* Members List */}
         <div className="space-y-3">
           {members.length === 0 ? (
-            <div className="rounded-md border border-dashed border-line bg-zinc-800/60/20 px-4 py-6 text-center text-sm text-muted">
+            <div className="rounded-md border border-dashed border-line bg-zinc-800/20 px-4 py-6 text-center text-sm text-muted">
               No members yet
             </div>
           ) : (
             members.map((member) => (
-              <div key={member.id} className="flex items-center justify-between gap-4 rounded-lg border border-line bg-zinc-800/60/20 p-4">
+              <div key={member.id} className="flex items-center justify-between gap-4 rounded-lg border border-line bg-zinc-800/20 p-4">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand/10 text-xs font-semibold text-brand">
                     {getInitials(member.user.name, member.user.email)}
@@ -347,7 +351,7 @@ export function OrganizationProfileCard({
                           name="role"
                           defaultValue={member.role}
                           disabled={ownerCount === 1 && member.role === 'owner'}
-                          className="h-9 rounded-lg border border-line bg-zinc-800/60 px-3 text-xs text-text outline-none focus:border-brand/70 focus:ring-2 focus:ring-brand/10 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="h-9 rounded-lg border border-line bg-zinc-800/40 px-3 text-xs text-text outline-none focus:border-brand/70 focus:ring-2 focus:ring-brand/10 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <option value="member">Member</option>
                           <option value="admin">Admin</option>
@@ -356,7 +360,8 @@ export function OrganizationProfileCard({
                         <SubmitButton
                           idleLabel="Update"
                           pendingLabel="Saving..."
-                          className="h-9 bg-zinc-800/60 px-3 text-xs font-semibold text-text hover:bg-zinc-700"
+                          success={!!roleState.success}
+                          className="h-9 bg-zinc-800/40 px-3 text-xs font-semibold text-text hover:bg-zinc-800/70"
                         />
                       </form>
                       <div className="flex items-center gap-2">
@@ -394,11 +399,14 @@ export function OrganizationProfileCard({
         {/* Pending Invites */}
         {invites.length > 0 && (
           <div className="mt-6 space-y-3 border-t border-line pt-6">
-            <h4 className="settings-kicker text-soft">Pending invitations</h4>
+            <div className="mb-3 flex items-center gap-2">
+              <SettingsIcon name="notification" className="h-4 w-4 text-soft" />
+              <h4 className="settings-kicker text-soft">Pending invitations</h4>
+            </div>
             {invites.map((invite) => (
-              <div key={invite.id} className="flex items-center justify-between gap-4 rounded-lg border border-line bg-zinc-800/60/20 p-4">
+              <div key={invite.id} className="flex items-center justify-between gap-4 rounded-lg border border-line bg-zinc-800/20 p-4">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-zinc-800/60/30 text-xs font-semibold text-soft">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-zinc-800/30 text-xs font-semibold text-soft">
                     {invite.email.slice(0, 2).toUpperCase()}
                   </div>
                   <div className="min-w-0">
@@ -436,14 +444,17 @@ export function OrganizationProfileCard({
       {/* Transfer Ownership Section - Owner only */}
       {isOwner && (
         <div className="border-b border-line p-6">
-          <h3 className="settings-kicker mb-6 text-soft">Transfer ownership</h3>
+          <div className="mb-6 flex items-center gap-2">
+            <SettingsIcon name="user" className="h-4 w-4 text-soft" />
+            <h3 className="settings-kicker text-soft">Transfer ownership</h3>
+          </div>
           <form action={transferAction} className="space-y-5">
             <input type="hidden" name="organizationId" value={organization.id} />
             <div>
               <label className="block text-sm font-medium text-text">Select new owner</label>
               <select
                 name="newOwnerUserId"
-                className="mt-2 h-11 w-full rounded-md border border-line bg-zinc-800/60 px-4 text-sm text-text outline-none focus:border-brand/70 focus:ring-4 focus:ring-brand/10"
+                className="mt-2 h-11 w-full rounded-md border border-line bg-zinc-800/40 px-4 text-sm text-text outline-none focus:border-brand/70 focus:ring-4 focus:ring-brand/10"
                 required
               >
                 <option value="">Choose a member...</option>
@@ -461,7 +472,7 @@ export function OrganizationProfileCard({
             </FormMessage>
             <FormMessage tone="success">{transferState.success}</FormMessage>
             <FormMessage>{transferState.error}</FormMessage>
-            <SubmitButton idleLabel="Transfer ownership" pendingLabel="Transferring..." />
+            <SubmitButton idleLabel="Transfer ownership" pendingLabel="Transferring..." success={!!transferState.success} />
           </form>
         </div>
       )}
@@ -559,7 +570,7 @@ export function ProjectProfileCard({
         {!canManage ? <FormMessage tone="muted">Read-only for members. Owners and admins can update project identity.</FormMessage> : null}
         <FormMessage tone="success">{state.success}</FormMessage>
         <FormMessage>{state.error}</FormMessage>
-        {canManage ? <SubmitButton idleLabel="Save project profile" pendingLabel="Saving project..." /> : null}
+        {canManage ? <SubmitButton idleLabel="Save project profile" pendingLabel="Saving project..." success={!!state.success} /> : null}
       </form>
     </div>
   );
@@ -577,6 +588,23 @@ export function AiSettingsCard({
   ai: SettingsResponse['ai'];
 }) {
   const [state, formAction] = useActionState(saveAiSettingsAction, initialState);
+  const [testState, testAction] = useActionState(testAiSettingsAction, initialState);
+  const [preferredProvider, setPreferredProvider] = useState<'openai' | 'openrouter'>(ai.preferredProvider);
+  const modelOptions = preferredProvider === 'openrouter'
+    ? [
+        'openrouter/free',
+        'openai/gpt-4.1-mini',
+        'anthropic/claude-3.7-sonnet',
+        'google/gemini-2.5-pro',
+        'meta-llama/llama-3.3-70b-instruct',
+      ]
+    : [
+        'gpt-4.1',
+        'gpt-4.1-mini',
+        'gpt-4.1-nano',
+        'gpt-4o',
+        'gpt-4o-mini',
+      ];
 
   return (
     <div className="settings-card p-6">
@@ -595,9 +623,10 @@ export function AiSettingsCard({
             <Label>Preferred provider</Label>
             <select
               name="preferredProvider"
-              defaultValue={ai.preferredProvider}
+              value={preferredProvider}
+              onChange={(event) => setPreferredProvider(event.target.value as 'openai' | 'openrouter')}
               disabled={!canManage}
-              className="h-11 w-full rounded-md border border-line bg-zinc-800/60 px-4 text-sm text-text outline-none focus:border-brand/70 focus:ring-4 focus:ring-brand/10"
+              className="h-11 w-full rounded-md border border-line bg-zinc-800/40 px-4 text-sm text-text outline-none focus:border-brand/70 focus:ring-4 focus:ring-brand/10"
             >
               <option value="openai">OpenAI</option>
               <option value="openrouter">OpenRouter</option>
@@ -605,23 +634,71 @@ export function AiSettingsCard({
           </div>
           <div>
             <Label>Model</Label>
-            <Input name="model" defaultValue={ai.model} placeholder="gpt-4.1-mini or openrouter/free" disabled={!canManage} />
+            <Input
+              name="model"
+              defaultValue={ai.model}
+              list={`ai-model-options-${preferredProvider}`}
+              placeholder={preferredProvider === 'openrouter' ? 'openrouter/free or provider/model' : 'gpt-4.1-mini'}
+              disabled={!canManage}
+            />
+            <datalist id={`ai-model-options-${preferredProvider}`}>
+              {modelOptions.map((model) => (
+                <option key={model} value={model} />
+              ))}
+            </datalist>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {modelOptions.map((model) => (
+                <button
+                  key={model}
+                  type="button"
+                  disabled={!canManage}
+                  onClick={(event) => {
+                    const form = event.currentTarget.closest('form');
+                    const input = form?.querySelector<HTMLInputElement>('input[name="model"]');
+                    if (input) {
+                      input.value = model;
+                      input.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                  }}
+                  className="rounded-md border border-line bg-zinc-800/30 px-2.5 py-1 text-xs text-soft transition hover:bg-zinc-700/40 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {model}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-soft">
+              Pick a suggested {preferredProvider === 'openrouter' ? 'OpenRouter' : 'OpenAI'} model or type any custom model id.
+            </p>
           </div>
         </div>
         <div className="grid gap-5 md:grid-cols-2">
           <div>
             <Label>OpenAI API key</Label>
             <Input name="openaiApiKey" type="password" placeholder={ai.openaiApiKeyPreview ?? 'Stored encrypted if provided'} disabled={!canManage} />
+            <p className="mt-2 text-xs text-soft">Leave blank to keep the currently stored OpenAI key.</p>
           </div>
           <div>
             <Label>OpenRouter API key</Label>
             <Input name="openrouterApiKey" type="password" placeholder={ai.openrouterApiKeyPreview ?? 'Stored encrypted if provided'} disabled={!canManage} />
+            <p className="mt-2 text-xs text-soft">Leave blank to keep the currently stored OpenRouter key.</p>
           </div>
         </div>
         {!canManage ? <FormMessage tone="muted">Read-only for members. Owners and admins can update AI runtime settings.</FormMessage> : null}
         <FormMessage tone="success">{state.success}</FormMessage>
         <FormMessage>{state.error}</FormMessage>
-        {canManage ? <SubmitButton idleLabel="Save AI settings" pendingLabel="Saving AI settings..." /> : null}
+        {canManage ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <SubmitButton idleLabel="Save AI settings" pendingLabel="Saving AI settings..." success={!!state.success} />
+            <button
+              formAction={testAction}
+              className="h-11 rounded-md border border-line bg-zinc-800/40 px-4 text-sm font-medium text-text transition hover:bg-zinc-800/70"
+            >
+              Test provider config
+            </button>
+          </div>
+        ) : null}
+        <FormMessage tone="success">{testState.success}</FormMessage>
+        <FormMessage>{testState.error}</FormMessage>
       </form>
     </div>
   );
@@ -660,9 +737,14 @@ export function IntegrationSecretsCard({
           integrations.map((integration) => (
             <div key={integration.id} className="settings-card-muted p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium text-text">{integration.type}</div>
-                  <div className="text-xs text-soft">{integration.name}</div>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md border border-white/5 bg-zinc-800/30 flex-shrink-0">
+                    <SettingsIcon name="integrations" className="h-5 w-5 text-zinc-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-text">{integration.type}</div>
+                    <div className="text-xs text-soft">{integration.name}</div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Badge tone={integration.health.isConfigured ? 'success' : integration.hasStoredSecret ? 'warn' : 'neutral'}>
@@ -688,7 +770,7 @@ export function IntegrationSecretsCard({
             </div>
           ))
       ) : (
-          <div className="rounded-lg border border-dashed border-line bg-zinc-800/60/20 px-4 py-6 text-sm text-muted">
+          <div className="rounded-lg border border-dashed border-line bg-zinc-800/20 px-4 py-6 text-sm text-muted">
             No project integrations are connected yet.
           </div>
         )}
@@ -699,7 +781,7 @@ export function IntegrationSecretsCard({
           value={selectedType}
           onChange={(event) => setSelectedType(event.target.value as SupportedIntegrationType)}
           disabled={!canManage}
-          className="mt-2 h-11 w-full max-w-sm rounded-md border border-line bg-zinc-800/60 px-4 text-sm text-text outline-none focus:border-brand/70 focus:ring-4 focus:ring-brand/10"
+          className="mt-2 h-11 w-full max-w-sm rounded-md border border-line bg-zinc-800/40 px-4 text-sm text-text outline-none focus:border-brand/70 focus:ring-4 focus:ring-brand/10"
         >
           <option value="JIRA">Jira</option>
           <option value="TRELLO">Trello</option>
@@ -718,7 +800,7 @@ export function IntegrationSecretsCard({
         {!canManage ? <FormMessage tone="muted">Read-only for members. Owners and admins can update integration configuration.</FormMessage> : null}
         <FormMessage tone="success">{configState.success}</FormMessage>
         <FormMessage>{configState.error}</FormMessage>
-        {canManage ? <SubmitButton idleLabel="Save integration config" pendingLabel="Saving config..." /> : null}
+        {canManage ? <SubmitButton idleLabel="Save integration config" pendingLabel="Saving config..." success={!!configState.success} /> : null}
       </form>
 
       <form key={`${selectedType}-secret`} action={secretAction} className="mt-6 space-y-5">
@@ -736,7 +818,7 @@ export function IntegrationSecretsCard({
         {!canManage ? <FormMessage tone="muted">Read-only for members. Owners and admins can update encrypted integration credentials.</FormMessage> : null}
         <FormMessage tone="success">{secretState.success}</FormMessage>
         <FormMessage>{secretState.error}</FormMessage>
-        {canManage ? <SubmitButton idleLabel="Save integration credentials" pendingLabel="Saving credentials..." /> : null}
+        {canManage ? <SubmitButton idleLabel="Save integration credentials" pendingLabel="Saving credentials..." success={!!secretState.success} /> : null}
       </form>
     </div>
   );
@@ -771,16 +853,16 @@ export function RepositoryHealthCard({
         </div>
         {status.recovery ? <div className="mt-3 text-sm leading-6 text-muted">{status.recovery}</div> : null}
         {connection?.webhookLastError ? (
-          <details className="mt-4 rounded-md border border-line bg-zinc-800/60/50 px-4 py-3 text-sm text-soft">
+          <details className="mt-4 rounded-md border border-line bg-zinc-800/40 px-4 py-3 text-sm text-soft">
             <summary className="cursor-pointer font-medium text-text">Advanced webhook detail</summary>
             <div className="mt-2 leading-6">{connection.webhookLastError}</div>
           </details>
         ) : null}
         <div className="mt-4 flex flex-wrap gap-3">
-          <Link href="/onboarding?stage=repository" className="inline-flex items-center justify-center gap-2 rounded-md h-9 px-3 text-sm font-medium border border-line bg-zinc-800/60/50 text-text hover:border-lineStrong hover:bg-zinc-800/60/90 transition duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-lineStrong/40">
+          <Link href="/onboarding?stage=repository" className="inline-flex items-center justify-center gap-2 rounded-md h-9 px-3 text-sm font-medium border border-line bg-zinc-800/40 text-text hover:border-lineStrong hover:bg-zinc-800/70 transition duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-lineStrong/40">
             {connection ? 'Repair repository connection' : 'Connect repository'}
           </Link>
-          <Link href="/docs/concepts/repository-onboarding" className="inline-flex items-center justify-center gap-2 rounded-md h-9 px-3 text-sm font-medium text-text hover:bg-zinc-800/60/70 transition duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-lineStrong/30">
+          <Link href="/docs/concepts/repository-onboarding" className="inline-flex items-center justify-center gap-2 rounded-md h-9 px-3 text-sm font-medium text-text hover:bg-zinc-800/50 transition duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-lineStrong/30">
             Review repository concepts
           </Link>
         </div>
@@ -810,7 +892,7 @@ export function IntegrationHealthCards({
       </div>
       <div className="mt-6 space-y-3">
         {integrations.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-line bg-zinc-800/60/20 px-4 py-6 text-sm text-muted">
+          <div className="rounded-lg border border-dashed border-line bg-zinc-800/20 px-4 py-6 text-sm text-muted">
             No project integrations are connected yet.
           </div>
         ) : (
@@ -832,7 +914,7 @@ export function IntegrationHealthCards({
                     {integration.health.isConfigured ? (
                       <TestConnectionButton projectId={projectId} type={integration.type as SupportedIntegrationType} />
                     ) : null}
-                    <Link href="/onboarding?stage=integrations" className="inline-flex items-center justify-center gap-2 rounded-md h-9 px-3 text-sm font-medium border border-line bg-zinc-800/60/50 text-text hover:border-lineStrong hover:bg-zinc-800/60/90 transition duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-lineStrong/40">
+                    <Link href="/onboarding?stage=integrations" className="inline-flex items-center justify-center gap-2 rounded-md h-9 px-3 text-sm font-medium border border-line bg-zinc-800/40 text-text hover:border-lineStrong hover:bg-zinc-800/70 transition duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-lineStrong/40">
                       Repair integration
                     </Link>
                   </div>
@@ -902,13 +984,13 @@ export function ProjectMetadataCard({
           </div>
         </div>
         {onboardingProgress ? (
-          <details className="mt-4 rounded-md border border-line bg-zinc-800/60/50 px-4 py-3 text-sm text-soft">
+          <details className="mt-4 rounded-md border border-line bg-zinc-800/40 px-4 py-3 text-sm text-soft">
             <summary className="cursor-pointer font-medium text-text">Onboarding progress metadata</summary>
             <div className="mt-2 break-all leading-6">{onboardingProgress}</div>
           </details>
         ) : null}
         {onboardingComplete ? (
-          <details className="mt-4 rounded-md border border-line bg-zinc-800/60/50 px-4 py-3 text-sm text-soft">
+          <details className="mt-4 rounded-md border border-line bg-zinc-800/40 px-4 py-3 text-sm text-soft">
             <summary className="cursor-pointer font-medium text-text">Onboarding completion metadata</summary>
             <div className="mt-2 break-all leading-6">{onboardingComplete}</div>
           </details>
@@ -939,7 +1021,7 @@ export function EnvironmentSettingsCard({
       </div>
 
       {entries.length === 0 ? (
-        <div className="mt-6 rounded-lg border border-dashed border-line bg-zinc-800/60/20 px-4 py-6 text-sm text-muted">
+        <div className="mt-6 rounded-lg border border-dashed border-line bg-zinc-800/20 px-4 py-6 text-sm text-muted">
           No persisted operational settings are available for this project yet.
         </div>
       ) : (
@@ -1016,7 +1098,7 @@ export function ProjectDangerCard({
             <Input name="confirmation" placeholder={project.slug} />
           </div>
           <FormMessage>{deleteState.error}</FormMessage>
-          <SubmitButton idleLabel="Delete project" pendingLabel="Deleting..." className="h-10 rounded-md bg-danger text-white hover:bg-red-400" />
+          <SubmitButton idleLabel="Delete project" pendingLabel="Deleting..." success={!!deleteState.success} />
         </form>
       </div>
     </div>
@@ -1086,13 +1168,13 @@ export function RuntimeOperationsCard({
           Export a sanitized settings snapshot or queue a real browser-check action for this project.
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Link href={exportHref} className="inline-flex items-center justify-center gap-2 rounded-md h-9 px-3 text-sm font-medium text-text hover:bg-zinc-800/60/70 transition duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-lineStrong/30">
+          <Link href={exportHref} className="inline-flex items-center justify-center gap-2 rounded-md h-9 px-3 text-sm font-medium text-text hover:bg-zinc-800/50 transition duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-lineStrong/30">
             Export settings JSON
           </Link>
           {canManage ? (
             <form action={queueAction}>
               <input type="hidden" name="projectId" value={project.id} />
-              <SubmitButton idleLabel="Queue browser checks" pendingLabel="Queueing..." className="h-10 rounded-md" />
+              <SubmitButton idleLabel="Queue browser checks" pendingLabel="Queueing..." className="h-10 rounded-md" success={!!queueState.success} />
             </form>
           ) : null}
         </div>

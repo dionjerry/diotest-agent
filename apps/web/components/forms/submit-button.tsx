@@ -10,11 +10,13 @@ export function SubmitButton({
   pendingLabel,
   success,
   className,
+  disabled = false,
 }: {
   idleLabel: string;
   pendingLabel: string;
   success?: boolean;
   className?: string;
+  disabled?: boolean;
 }) {
   const { pending } = useFormStatus();
   const [showSuccess, setShowSuccess] = useState(false);
@@ -28,7 +30,7 @@ export function SubmitButton({
   }, [success]);
 
   return (
-    <Button type="submit" className={className} disabled={pending || showSuccess}>
+    <Button type="submit" className={className} disabled={disabled || pending || showSuccess}>
       {showSuccess ? (
         <>
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 
 import bcrypt from 'bcryptjs';
 import { AuthError } from 'next-auth';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
@@ -22,6 +22,7 @@ import {
   saveRepositoryConnection,
   saveRepositorySecret,
   saveAiSettings,
+  testHostedRuntime,
   saveIntegration,
   saveIntegrationSecret,
   saveOAuthSettings,
@@ -31,6 +32,9 @@ import {
   updateOrganizationMemberRole,
   transferOrganizationOwnership,
   deleteOrganization,
+  createAgentThread,
+  runHostedAgentExecution,
+  sendAgentThreadMessage,
 } from '@/lib/api';
 import { auth, signIn, signOut } from '@/lib/auth';
 import { getPersistedIntegrationState, getIntegrationName, persistIntegrationConnection, type IntegrationType } from '@/lib/integration-connections';
@@ -54,6 +58,8 @@ import { decryptPayload } from '@/lib/encryption';
 export type ActionState = {
   error?: string;
   success?: string;
+  threadId?: string;
+  resultJson?: string;
 };
 
 function revalidateAppData() {
@@ -62,6 +68,12 @@ function revalidateAppData() {
   revalidatePath('/app/projects');
   revalidatePath('/app/settings');
   revalidatePath('/studio');
+  revalidatePath('/studio', 'layout');
+  revalidatePath('/studio/runs');
+}
+
+function settingsCacheTag(organizationId?: string, projectId?: string) {
+  return `settings:${organizationId ?? 'system'}:${projectId ?? 'none'}`;
 }
 
 function readString(formData: FormData, key: string) {
@@ -1060,9 +1072,71 @@ export async function saveAiSettingsAction(_: ActionState, formData: FormData): 
     openaiApiKey: openaiApiKey || undefined,
     openrouterApiKey: openrouterApiKey || undefined,
   });
+  revalidateTag(settingsCacheTag(organizationId, projectId));
   revalidateAppData();
 
   return { success: 'AI settings saved.' };
+}
+
+export async function testAiSettingsAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
+  const organizationId = readString(formData, 'organizationId') || undefined;
+  const projectId = readString(formData, 'projectId') || undefined;
+  const preferredProvider = readString(formData, 'preferredProvider');
+  const model = readString(formData, 'model');
+  const openaiApiKey = readString(formData, 'openaiApiKey');
+  const openrouterApiKey = readString(formData, 'openrouterApiKey');
+
+  if (projectId) {
+    const project = await requireOwnedProject(session.user.id, projectId);
+    if (!project) {
+      return { error: 'Project not found.' };
+    }
+
+    const membership = await requireOwnedOrganization(session.user.id, project.organizationId);
+    if (!membership || !canManageOrganizationSettings(membership.role)) {
+      return { error: 'Only organization owners and admins can validate AI settings.' };
+    }
+  } else if (organizationId) {
+    const membership = await requireOwnedOrganization(session.user.id, organizationId);
+    if (!membership || !canManageOrganizationSettings(membership.role)) {
+      return { error: 'Only organization owners and admins can validate AI settings.' };
+    }
+  } else {
+    return { error: 'Settings scope is required.' };
+  }
+
+  if (preferredProvider !== 'openai' && preferredProvider !== 'openrouter') {
+    return { error: 'Choose a valid AI provider.' };
+  }
+
+  if (!model) {
+    return { error: 'Model is required.' };
+  }
+
+  try {
+    const result = await testHostedRuntime({
+      organizationId,
+      projectId,
+      preferredProvider,
+      model,
+      openaiApiKey: openaiApiKey || undefined,
+      openrouterApiKey: openrouterApiKey || undefined,
+    });
+    return {
+      success: `Runtime OK: ${result.provider} · ${result.model} · ${result.scope}`,
+    };
+  } catch (error) {
+    if (error instanceof AppApiError) {
+      return { error: error.message || 'Runtime validation failed.' };
+    }
+
+    throw error;
+  }
 }
 
 export async function saveIntegrationSecretAction(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -1214,6 +1288,128 @@ export async function approveAgentActionAction(_: ActionState, formData: FormDat
   await approveAgentAction(actionId);
   revalidateAppData();
   return { success: 'Action approved and queued.' };
+}
+
+export async function createStudioAgentThreadAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
+  const organizationId = readString(formData, 'organizationId');
+  const projectId = readString(formData, 'projectId');
+  const content = readString(formData, 'content');
+
+  if (!organizationId || !projectId || !content) {
+    return { error: 'Organization, project, and message are required.' };
+  }
+
+  const project = await requireOwnedProject(session.user.id, projectId);
+  if (!project || project.organizationId !== organizationId) {
+    return { error: 'Project not found.' };
+  }
+
+  try {
+    const result = await createAgentThread({
+      organizationId,
+      projectId,
+      content,
+    });
+    revalidateAppData();
+    return {
+      success: 'Agent thread created.',
+      threadId: result.thread.id,
+    };
+  } catch (error) {
+    if (error instanceof AppApiError && error.code === 'request_failed') {
+      return { error: error.message || 'Could not create the agent thread.' };
+    }
+
+    throw error;
+  }
+}
+
+export async function sendStudioAgentMessageAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
+  const organizationId = readString(formData, 'organizationId');
+  const projectId = readString(formData, 'projectId');
+  const threadId = readString(formData, 'threadId');
+  const content = readString(formData, 'content');
+
+  if (!organizationId || !projectId || !threadId || !content) {
+    return { error: 'Organization, project, thread, and message are required.' };
+  }
+
+  const project = await requireOwnedProject(session.user.id, projectId);
+  if (!project || project.organizationId !== organizationId) {
+    return { error: 'Project not found.' };
+  }
+
+  try {
+    await sendAgentThreadMessage({
+      threadId,
+      organizationId,
+      projectId,
+      content,
+    });
+    revalidateAppData();
+    return {
+      success: 'Message sent.',
+      threadId,
+    };
+  } catch (error) {
+    if (error instanceof AppApiError && error.code === 'request_failed') {
+      return { error: error.message || 'Could not send the message.' };
+    }
+
+    throw error;
+  }
+}
+
+export async function runStudioAgentPlanAction(_: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: 'Not authenticated.' };
+  }
+
+  const organizationId = readString(formData, 'organizationId');
+  const projectId = readString(formData, 'projectId');
+  const goal = readString(formData, 'goal');
+  const focus = readString(formData, 'focus') || undefined;
+
+  if (!organizationId || !projectId || !goal) {
+    return { error: 'Organization, project, and goal are required.' };
+  }
+
+  const project = await requireOwnedProject(session.user.id, projectId);
+  if (!project || project.organizationId !== organizationId) {
+    return { error: 'Project not found.' };
+  }
+
+  try {
+    const result = await runHostedAgentExecution({
+      organizationId,
+      projectId,
+      goal,
+      focus,
+    });
+    revalidateAppData();
+
+    return {
+      success: 'Execution plan generated.',
+      resultJson: JSON.stringify(result),
+    };
+  } catch (error) {
+    if (error instanceof AppApiError && error.code === 'request_failed') {
+      return { error: error.message || 'Agent plan generation failed.' };
+    }
+
+    throw error;
+  }
 }
 
 export async function inviteOrganizationMemberAction(_: ActionState, formData: FormData): Promise<ActionState> {

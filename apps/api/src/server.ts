@@ -7,8 +7,10 @@ import { env } from './env.js';
 import { toSafeApiError } from './lib/errors.js';
 import { classifyError, logDebug, logError, logEvent } from './lib/logging.js';
 import { registerActionRoutes } from './routes/actions.js';
+import { registerAgentRoutes } from './routes/agents.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerInternalRoutes } from './routes/internal.js';
+import { registerRuntimeRoutes } from './routes/runtime.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 
 const app = Fastify({ logger: true });
@@ -154,7 +156,9 @@ app.get(
 await registerHealthRoutes(app);
 await registerInternalRoutes(app);
 await registerSettingsRoutes(app);
+await registerRuntimeRoutes(app);
 await registerActionRoutes(app);
+await registerAgentRoutes(app);
 
 app
   .listen({ port: env.PORT, host: env.HOST })

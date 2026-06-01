@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
-const nextDir = path.join(repoRoot, 'apps', 'web', '.next');
+const nextDirs = [
+  path.join(repoRoot, 'apps', 'web', '.next'),
+  path.join(repoRoot, 'apps', 'web', '.next-dev'),
+];
 const port = Number(process.env.PORT || 3000);
 
 function isPortInUse(portToCheck) {
@@ -28,5 +31,7 @@ if (await isPortInUse(port)) {
   process.exit(1);
 }
 
-fs.rmSync(nextDir, { recursive: true, force: true });
-console.log('Removed apps/web/.next');
+for (const dir of nextDirs) {
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+console.log('Removed apps/web/.next and apps/web/.next-dev');

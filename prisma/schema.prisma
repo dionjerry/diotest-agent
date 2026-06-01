@@ -141,10 +141,39 @@ model Project {
   integrations   IntegrationConnection[]
   settings       SystemSetting[]
   encryptedSecrets EncryptedSecret[]
-  actions        AgentAction[]
-  tasks          Task[]
+  actions          AgentAction[]
+  tasks            Task[]
+  recorderSessions    RecorderSession[]
+  analysisSessions    AnalysisSession[]
+  recorderScreenshots RecorderScreenshot[]
+  agentThreads        AgentThread[]
 
   @@unique([organizationId, slug])
+}
+
+model AgentThread {
+  id          String         @id @default(cuid())
+  projectId   String
+  title       String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages    AgentMessage[]
+  toolCalls   AgentToolCall[]
+
+  @@index([projectId, updatedAt])
+}
+
+model AgentMessage {
+  id        String      @id @default(cuid())
+  threadId   String
+  role      String
+  content   String
+  meta      Json?
+  createdAt DateTime    @default(now())
+  thread    AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
 }
 
 model GithubConnection {
@@ -227,6 +256,80 @@ model EncryptedSecret {
   project        Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([scope, organizationId, projectId, key])
+}
+
+model RecorderScreenshot {
+  id                 String   @id @default(cuid())
+  projectId          String
+  extensionSessionId String
+  stepId             String
+  mimeType           String   @default("image/jpeg")
+  data               Bytes
+  createdAt          DateTime @default(now())
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([extensionSessionId, stepId])
+  @@index([extensionSessionId])
+}
+
+model RecorderSession {
+  id                 String    @id @default(cuid())
+  projectId          String
+  extensionSessionId String    @unique
+  name               String
+  domain             String
+  startUrl           String
+  lastUrl            String
+  status             String
+  steps              Json
+  pageSummaries      Json?
+  generated          Json?
+  lastGenerationOptions Json?
+  warnings           Json      @default("[]")
+  screenshotsCaptured Int      @default(0)
+  storageTrimmed     Boolean   @default(false)
+  startedAt          DateTime
+  stoppedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model AnalysisSession {
+  id                 String    @id @default(cuid())
+  projectId          String
+  extensionRunId     String    @unique
+  threadId           String
+  repo               String
+  ref                String
+  pageType           String
+  title              String?
+  url                String?
+  mode               String
+  coverageLevel      String
+  analysisQuality    String
+  riskScore          Float
+  riskAreas          Json
+  testPlan           Json
+  manualTestCases    Json
+  debug              Json
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model AgentToolCall {
+  id         String      @id @default(cuid())
+  threadId   String
+  tool       String
+  inputJson  Json
+  outputJson Json?
+  durationMs Int?
+  status     String      @default("used")
+  createdAt  DateTime    @default(now())
+  thread     AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
 }
 
 model AgentAction {

@@ -6,7 +6,8 @@ import type { AiProviderConfig, OAuthProviderConfig } from '@diotest/domain/plat
 
 import { prisma } from '../db.js';
 import { classifyError, logDebug, logError, logEvent } from '../lib/logging.js';
-import { decryptPayload, encryptPayload, toAiSettingsView, toIntegrationSecretPreview, toOAuthSettingsView } from '../lib/secrets.js';
+import { decryptPayload, toAiSettingsView, toIntegrationSecretPreview, toOAuthSettingsView } from '../lib/secrets.js';
+import { getSecret, upsertSecret, upsertSetting } from '../lib/settings-store.js';
 
 const supportedIntegrationTypes = ['JIRA', 'TRELLO', 'GOOGLE_SHEETS'] as const;
 type SupportedIntegrationType = (typeof supportedIntegrationTypes)[number];
@@ -409,64 +410,6 @@ async function loadSettingsPayload(query: z.infer<typeof contextSchema>) {
   };
 }
 
-async function getSecret(scope: 'SYSTEM' | 'ORGANIZATION' | 'PROJECT', key: string, organizationId?: string, projectId?: string) {
-  return prisma.encryptedSecret.findFirst({
-    where: {
-      scope,
-      key,
-      organizationId: organizationId ?? null,
-      projectId: projectId ?? null,
-    },
-  });
-}
-
-async function upsertSecret(scope: 'SYSTEM' | 'ORGANIZATION' | 'PROJECT', key: string, payload: Record<string, unknown>, organizationId?: string, projectId?: string) {
-  const encrypted = encryptPayload(payload);
-
-  await prisma.encryptedSecret.deleteMany({
-    where: {
-      scope,
-      key,
-      organizationId: organizationId ?? null,
-      projectId: projectId ?? null,
-    },
-  });
-
-  return prisma.encryptedSecret.create({
-    data: {
-      scope,
-      key,
-      organizationId,
-      projectId,
-      cipherText: encrypted.cipherText,
-      iv: encrypted.iv,
-      tag: encrypted.tag,
-      algorithm: encrypted.algorithm,
-    },
-  });
-}
-
-async function upsertSetting(scope: 'SYSTEM' | 'ORGANIZATION' | 'PROJECT', key: string, value: Record<string, unknown>, organizationId?: string, projectId?: string) {
-  await prisma.systemSetting.deleteMany({
-    where: {
-      scope,
-      key,
-      organizationId: organizationId ?? null,
-      projectId: projectId ?? null,
-    },
-  });
-
-  return prisma.systemSetting.create({
-    data: {
-      scope,
-      key,
-      organizationId,
-      projectId,
-      value: value as Prisma.InputJsonValue,
-    },
-  });
-}
-
 export async function registerSettingsRoutes(app: FastifyInstance) {
   app.get('/settings', {
     schema: {
@@ -584,15 +527,17 @@ export async function registerSettingsRoutes(app: FastifyInstance) {
     try {
       const payload = aiSchema.parse(request.body);
 
+      const scope = payload.projectId ? 'PROJECT' : payload.organizationId ? 'ORGANIZATION' : 'SYSTEM';
+      const secretKey = payload.projectId ? 'ai.project' : 'ai.org';
+      const existingSecret = await getSecret(scope, secretKey, payload.organizationId, payload.projectId);
+      const existingConfig = existingSecret ? decryptPayload<AiProviderConfig>(existingSecret) : null;
+
       const config: AiProviderConfig = {
         preferredProvider: payload.preferredProvider,
         model: payload.model,
-        openaiApiKey: payload.openaiApiKey,
-        openrouterApiKey: payload.openrouterApiKey,
+        openaiApiKey: payload.openaiApiKey || existingConfig?.openaiApiKey,
+        openrouterApiKey: payload.openrouterApiKey || existingConfig?.openrouterApiKey,
       };
-
-      const scope = payload.projectId ? 'PROJECT' : payload.organizationId ? 'ORGANIZATION' : 'SYSTEM';
-      const secretKey = payload.projectId ? 'ai.project' : 'ai.org';
 
       await upsertSecret(scope, secretKey, config as unknown as Record<string, unknown>, payload.organizationId, payload.projectId);
       await upsertSetting(scope, 'ai.meta', { preferredProvider: payload.preferredProvider, model: payload.model }, payload.organizationId, payload.projectId);

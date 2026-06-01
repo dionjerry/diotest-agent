@@ -29,4 +29,5 @@ export type BackgroundMessage =
   | { type: "recorder.session.generate"; payload: { sessionId: string } & Partial<UiRecorderGenerationOptions> }
   | { type: "recorder.session.delete"; payload: { sessionId: string } }
   | { type: "recorder.session.clearAll" }
-  | { type: "export.filename"; payload: { mode: "pr" | "ui"; repo?: string; prNumber?: number; domain?: string; ext: "json" | "md" } };
+  | { type: "export.filename"; payload: { mode: "pr" | "ui"; repo?: string; prNumber?: number; domain?: string; ext: "json" | "md" } }
+  | { type: "sync.all" };

@@ -145,6 +145,67 @@ async function testDioTestConnection(apiBaseUrl: string, apiKey: string) {
   }
 }
 
+function getAppOrigin(rawUrl: string): string {
+  // diotestApiUrl is stored as https://host/org/projectId — we only need the origin
+  try {
+    return new URL(rawUrl.trim()).origin;
+  } catch {
+    return rawUrl.trim().replace(/\/+$/, "");
+  }
+}
+
+async function pushRecorderSession(session: UiRecorderSession): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await loadSettings();
+    const rawUrl = settings.connection?.diotestApiUrl;
+    const apiKey = settings.connection?.diotestApiKey?.trim();
+    if (!rawUrl || !apiKey) return { ok: false, error: "No connection configured" };
+    const origin = getAppOrigin(rawUrl);
+    const url = `${origin}/api/extension/recorder/sessions`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ apiKey, session }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => String(res.status));
+      console.error("[DioTest sync] recorder upload failed", res.status, text);
+      return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 120)}` };
+    }
+    return { ok: true };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[DioTest sync] recorder upload error", msg);
+    return { ok: false, error: msg };
+  }
+}
+
+async function pushAnalysisSession(run: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const settings = await loadSettings();
+    const rawUrl = settings.connection?.diotestApiUrl;
+    const apiKey = settings.connection?.diotestApiKey?.trim();
+    if (!rawUrl || !apiKey) return { ok: false, error: "No connection configured" };
+    const origin = getAppOrigin(rawUrl);
+    const url = `${origin}/api/extension/analysis/sessions`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ apiKey, run }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => String(res.status));
+      console.error("[DioTest sync] analysis upload failed", res.status, text);
+      return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 120)}` };
+    }
+    return { ok: true };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[DioTest sync] analysis upload error", msg);
+    return { ok: false, error: msg };
+  }
+}
+
 async function maybeCaptureScreenshot(active: RecorderActiveState, session: UiRecorderSession, event: RawRecorderEvent) {
   if (!active.recordScreenshots) return undefined;
   if (!shouldCaptureScreenshot(event)) return undefined;
@@ -254,9 +315,36 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendR
             debug: result.debug
           });
 
+          const ref = String(result.debug.request_inspector.ref || result.result.meta.analysis_mode);
+          const synced = await pushAnalysisSession({
+            id: persisted.sessionId,
+            threadId: `${result.debug.request_inspector.repo}::${ref}`,
+            repo: result.debug.request_inspector.repo,
+            ref,
+            pageType: result.debug.request_inspector.page_type,
+            title: result.debug.raw_context.title?.trim() || undefined,
+            url: result.debug.raw_context.url,
+            mode: message.payload.mode,
+            coverageLevel: result.result.meta.coverage_level,
+            analysisQuality: result.debug.request_inspector.analysis_quality,
+            riskScore: result.result.risk_score,
+            riskAreas: result.result.risk_areas,
+            testPlan: result.result.test_plan,
+            manualTestCases: result.result.manual_test_cases,
+            debug: {
+              warnings: result.debug.warnings,
+              filesDetected: result.debug.request_inspector.files_detected,
+              filesSent: result.debug.request_inspector.files_sent_to_ai,
+              deepScanUsed: result.debug.request_inspector.deep_scan_used,
+              extractionSource: result.debug.request_inspector.extraction_source,
+              normalizationFlags: result.debug.request_inspector.normalization_flags_applied,
+            },
+          });
+
           sendResponse({
             ...result,
-            session_id: persisted.sessionId
+            session_id: persisted.sessionId,
+            synced: synced.ok,
           });
           return;
         }
@@ -383,7 +471,8 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendR
         }
         await clearRecorderState();
         setBadge("");
-        sendResponse({ ok: true, session });
+        const stopResult = session ? await pushRecorderSession(session) : { ok: false };
+        sendResponse({ ok: true, session, synced: stopResult.ok });
         return;
       }
       case "recorder.status": {
@@ -442,7 +531,8 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendR
             generated: generated.result,
           }));
         }
-        sendResponse({ ok: true, session: updated });
+        const genResult = updated ? await pushRecorderSession(updated) : { ok: false };
+        sendResponse({ ok: true, session: updated, synced: genResult.ok });
         return;
       }
       case "recorder.session.delete": {
@@ -461,6 +551,56 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendR
           return;
         }
         sendResponse({ ok: true, filename: buildUiSessionExportFilename(message.payload.domain ?? "domain", message.payload.ext) });
+        return;
+      }
+      case "sync.all": {
+        const settings = await loadSettings();
+        const rawUrl = settings.connection?.diotestApiUrl;
+        const apiKey = settings.connection?.diotestApiKey?.trim();
+        if (!rawUrl || !apiKey) {
+          sendResponse({ ok: false, error: "No connection configured. Add API Base URL and API Key in Settings.", synced: 0, failed: 0, total: 0 });
+          return;
+        }
+
+        const [recorderGroups, analysisList] = await Promise.all([
+          listUiRecorderSessions(),
+          listAnalysisSessions(),
+        ]);
+
+        const allRecorderSessions = recorderGroups.flatMap((g) => g.sessions);
+        const allAnalysisRuns = analysisList.threads.flatMap((t) => t.runs);
+
+        let synced = 0;
+        let failed = 0;
+        let firstError: string | undefined;
+
+        for (const session of allRecorderSessions) {
+          const result = await pushRecorderSession(session);
+          if (result.ok) { synced++; } else { failed++; firstError = firstError ?? result.error; }
+        }
+
+        for (const run of allAnalysisRuns) {
+          const result = await pushAnalysisSession({
+            id: run.id,
+            threadId: run.threadId,
+            repo: run.repo,
+            ref: run.ref,
+            pageType: run.pageType,
+            title: run.title,
+            url: run.url,
+            mode: run.mode,
+            coverageLevel: run.coverageLevel,
+            analysisQuality: run.analysisQuality,
+            riskScore: run.riskScore,
+            riskAreas: run.riskAreas,
+            testPlan: run.testPlan,
+            manualTestCases: run.manualTestCases,
+            debug: run.debug,
+          });
+          if (result.ok) { synced++; } else { failed++; firstError = firstError ?? result.error; }
+        }
+
+        sendResponse({ ok: true, synced, failed, total: synced + failed, error: firstError });
         return;
       }
       }

@@ -80,3 +80,7 @@ body {
     @apply transition-colors hover:bg-white/[0.02];
   }
 }
+
+  .settings-row {
+    @apply flex items-center justify-between gap-4 p-4;
+  }

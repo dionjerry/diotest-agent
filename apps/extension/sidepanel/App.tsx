@@ -229,6 +229,8 @@ export default function App() {
   const [analyzeError, setAnalyzeError]     = useState<string | null>(null);
   const [analyzing, setAnalyzing]           = useState(false);
   const [includeDeepScan, setIncludeDeepScan] = useState(false);
+  const [syncStatus, setSyncStatus]         = useState<"idle" | "syncing" | "synced" | "failed">("idle");
+  const [syncError, setSyncError]           = useState<string | null>(null);
   const [isDebugExpanded, setIsDebugExpanded] = useState(false);
   const [isPromptExpanded, setIsPromptExpanded]   = useState(false);
   const [isContextExpanded, setIsContextExpanded] = useState(false);
@@ -254,6 +256,12 @@ export default function App() {
     selectedSessionId: null,
   });
   const debugDetailsRef = useRef<HTMLDivElement | null>(null);
+
+  function showSyncResult(synced: boolean, error?: string) {
+    setSyncStatus(synced ? "synced" : "failed");
+    setSyncError(error ?? null);
+    setTimeout(() => { setSyncStatus("idle"); setSyncError(null); }, 4000);
+  }
 
   async function refreshActiveRecorderSession(sessionId: string): Promise<UiRecorderSession | null> {
     const response = await sendMessage<{ ok: boolean; session: UiRecorderSession | null }>({
@@ -482,9 +490,10 @@ export default function App() {
     }
     setSelectedRecorderSession(reviewResponse.session);
     setRecorderRequestState("generating");
+    setSyncStatus("syncing");
     const response = await sendMessage<
-      | { ok: false; error: string }
-      | { ok: true; session: UiRecorderSession | null }
+      | { ok: false; error: string; synced?: boolean }
+      | { ok: true; session: UiRecorderSession | null; synced?: boolean }
     >({
       type: "recorder.session.generate",
       payload: {
@@ -496,8 +505,10 @@ export default function App() {
     if (!response.ok || !response.session) {
       setRecorderSessionsError(response.ok ? "Unable to generate recorder outputs." : response.error);
       setRecorderRequestState("error");
+      setSyncStatus("idle");
       return;
     }
+    showSyncResult(response.synced ?? false);
     setSelectedRecorderSession(response.session);
     setRecorderDetailTab("results");
     await refreshRecorderSessions();
@@ -522,6 +533,17 @@ export default function App() {
     await refreshRecorderSessions();
   }
 
+  async function syncAll() {
+    setSyncStatus("syncing");
+    setSyncError(null);
+    const result = await sendMessage<{ ok: boolean; synced?: number; failed?: number; total?: number; error?: string }>({ type: "sync.all" });
+    if (!result.ok) {
+      showSyncResult(false, result.error ?? "No connection configured — check Settings.");
+      return;
+    }
+    showSyncResult((result.failed ?? 0) === 0, result.error);
+  }
+
   async function runAnalysis(scanOverride?: boolean) {
     setAnalyzing(true);
     setAnalyzeError(null);
@@ -537,13 +559,15 @@ export default function App() {
       }
       const deepScan = typeof scanOverride === "boolean" ? scanOverride : includeDeepScan;
       const mode: AnalysisMode = deepScan ? "pr_commit_deep_scan" : "pr_commit";
+      setSyncStatus("syncing");
       const result = await sendMessage<
-        | { ok: false; error: string }
-        | { ok: true; result: AiAnalysisResultV1; debug: AnalyzeDebug }
+        | { ok: false; error: string; synced?: boolean }
+        | { ok: true; result: AiAnalysisResultV1; debug: AnalyzeDebug; synced?: boolean }
       >({ type: "analysis.run", payload: { tabId: targetTabId, mode, includeDeepScan: deepScan } });
-      if (!result.ok) { setAnalyzeError(result.error); return; }
+      if (!result.ok) { setAnalyzeError(result.error); setSyncStatus("idle"); return; }
       setAnalysis(result.result);
       setDebug(result.debug);
+      showSyncResult(result.synced ?? false);
       await refreshSessions();
     } finally {
       setAnalyzing(false);
@@ -581,9 +605,11 @@ export default function App() {
   }
 
   async function stopRecorder() {
-    const result = await sendMessage<{ ok: boolean; session?: UiRecorderSession | null }>({ type: "recorder.stop" });
+    setSyncStatus("syncing");
+    const result = await sendMessage<{ ok: boolean; session?: UiRecorderSession | null; synced?: boolean }>({ type: "recorder.stop" });
     setRecorder({ active: false });
     setActiveRecorderSession(null);
+    showSyncResult(result.synced ?? false);
     await refreshRecorderSessions();
     if (result.ok && result.session) {
       setSessionsSurface("recorder");
@@ -693,7 +719,25 @@ export default function App() {
           <h1 className="app-title">DioTest</h1>
           <p className="app-subtitle">AI-first PR analysis</p>
         </div>
-        <span className="brand-badge">Community</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {syncStatus === "syncing" && (
+            <span style={{ fontSize: 11, color: "#9ca3af", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#60a5fa", animation: "pulse 1.5s infinite" }} />
+              Syncing…
+            </span>
+          )}
+          {syncStatus === "synced" && (
+            <span style={{ fontSize: 11, color: "#34d399", display: "flex", alignItems: "center", gap: 4 }}>
+              ✓ Synced
+            </span>
+          )}
+          {syncStatus === "failed" && (
+            <span style={{ fontSize: 11, color: "#f87171", display: "flex", alignItems: "center", gap: 4 }} title={syncError ?? undefined}>
+              ✕ {syncError ? syncError.slice(0, 40) : "Sync failed"}
+            </span>
+          )}
+          <span className="brand-badge">Community</span>
+        </div>
       </header>
 
       {/* Tabs */}
@@ -1033,6 +1077,14 @@ export default function App() {
                     onClick={() => setSessionsSurface("recorder")}
                   >
                     Recorder
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => void syncAll()}
+                    disabled={syncStatus === "syncing"}
+                    title="Upload all local sessions to DioTest"
+                  >
+                    {syncStatus === "syncing" ? "Syncing…" : "↑ Sync Now"}
                   </Button>
                   <Button
                     variant="secondary"

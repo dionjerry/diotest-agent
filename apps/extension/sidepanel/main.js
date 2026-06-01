@@ -29935,6 +29935,8 @@ function App() {
   const [analyzeError, setAnalyzeError] = (0, import_react5.useState)(null);
   const [analyzing, setAnalyzing] = (0, import_react5.useState)(false);
   const [includeDeepScan, setIncludeDeepScan] = (0, import_react5.useState)(false);
+  const [syncStatus, setSyncStatus] = (0, import_react5.useState)("idle");
+  const [syncError, setSyncError] = (0, import_react5.useState)(null);
   const [isDebugExpanded, setIsDebugExpanded] = (0, import_react5.useState)(false);
   const [isPromptExpanded, setIsPromptExpanded] = (0, import_react5.useState)(false);
   const [isContextExpanded, setIsContextExpanded] = (0, import_react5.useState)(false);
@@ -29960,6 +29962,14 @@ function App() {
     selectedSessionId: null
   });
   const debugDetailsRef = (0, import_react5.useRef)(null);
+  function showSyncResult(synced, error) {
+    setSyncStatus(synced ? "synced" : "failed");
+    setSyncError(error ?? null);
+    setTimeout(() => {
+      setSyncStatus("idle");
+      setSyncError(null);
+    }, 4e3);
+  }
   async function refreshActiveRecorderSession(sessionId) {
     const response = await sendMessage({
       type: "recorder.session.get",
@@ -30167,6 +30177,7 @@ function App() {
     }
     setSelectedRecorderSession(reviewResponse.session);
     setRecorderRequestState("generating");
+    setSyncStatus("syncing");
     const response = await sendMessage({
       type: "recorder.session.generate",
       payload: {
@@ -30178,8 +30189,10 @@ function App() {
     if (!response.ok || !response.session) {
       setRecorderSessionsError(response.ok ? "Unable to generate recorder outputs." : response.error);
       setRecorderRequestState("error");
+      setSyncStatus("idle");
       return;
     }
+    showSyncResult(response.synced ?? false);
     setSelectedRecorderSession(response.session);
     setRecorderDetailTab("results");
     await refreshRecorderSessions();
@@ -30201,6 +30214,16 @@ function App() {
     dispatchRecorderNav({ type: "reset" });
     await refreshRecorderSessions();
   }
+  async function syncAll() {
+    setSyncStatus("syncing");
+    setSyncError(null);
+    const result = await sendMessage({ type: "sync.all" });
+    if (!result.ok) {
+      showSyncResult(false, result.error ?? "No connection configured \u2014 check Settings.");
+      return;
+    }
+    showSyncResult((result.failed ?? 0) === 0, result.error);
+  }
   async function runAnalysis(scanOverride) {
     setAnalyzing(true);
     setAnalyzeError(null);
@@ -30216,13 +30239,16 @@ function App() {
       }
       const deepScan = typeof scanOverride === "boolean" ? scanOverride : includeDeepScan;
       const mode = deepScan ? "pr_commit_deep_scan" : "pr_commit";
+      setSyncStatus("syncing");
       const result = await sendMessage({ type: "analysis.run", payload: { tabId: targetTabId, mode, includeDeepScan: deepScan } });
       if (!result.ok) {
         setAnalyzeError(result.error);
+        setSyncStatus("idle");
         return;
       }
       setAnalysis(result.result);
       setDebug(result.debug);
+      showSyncResult(result.synced ?? false);
       await refreshSessions();
     } finally {
       setAnalyzing(false);
@@ -30260,9 +30286,11 @@ function App() {
     }
   }
   async function stopRecorder() {
+    setSyncStatus("syncing");
     const result = await sendMessage({ type: "recorder.stop" });
     setRecorder({ active: false });
     setActiveRecorderSession(null);
+    showSyncResult(result.synced ?? false);
     await refreshRecorderSessions();
     if (result.ok && result.session) {
       setSessionsSurface("recorder");
@@ -30340,7 +30368,18 @@ function App() {
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h1", { className: "app-title", children: "DioTest" }),
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: "app-subtitle", children: "AI-first PR analysis" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "brand-badge", children: "Community" })
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+        syncStatus === "syncing" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { style: { fontSize: 11, color: "#9ca3af", display: "flex", alignItems: "center", gap: 4 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "#60a5fa", animation: "pulse 1.5s infinite" } }),
+          "Syncing\u2026"
+        ] }),
+        syncStatus === "synced" && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { fontSize: 11, color: "#34d399", display: "flex", alignItems: "center", gap: 4 }, children: "\u2713 Synced" }),
+        syncStatus === "failed" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("span", { style: { fontSize: 11, color: "#f87171", display: "flex", alignItems: "center", gap: 4 }, title: syncError ?? void 0, children: [
+          "\u2715 ",
+          syncError ? syncError.slice(0, 40) : "Sync failed"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: "brand-badge", children: "Community" })
+      ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("nav", { className: "tab-row", "aria-label": "DioTest sections", children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
@@ -30621,6 +30660,16 @@ function App() {
                   variant: sessionsSurface === "recorder" ? "secondary" : "ghost",
                   onClick: () => setSessionsSurface("recorder"),
                   children: "Recorder"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+                Button,
+                {
+                  variant: "secondary",
+                  onClick: () => void syncAll(),
+                  disabled: syncStatus === "syncing",
+                  title: "Upload all local sessions to DioTest",
+                  children: syncStatus === "syncing" ? "Syncing\u2026" : "\u2191 Sync Now"
                 }
               ),
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(

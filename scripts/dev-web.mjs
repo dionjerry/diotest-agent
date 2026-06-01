@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const webDir = path.join(repoRoot, 'apps', 'web');
 const envPath = path.join(repoRoot, '.env');
+const devDistDir = path.join(webDir, '.next-dev');
 const shouldOpen = process.argv.includes('--open');
 const port = Number(process.env.PORT || 3000);
 const targetUrl = process.env.NEXTAUTH_URL || `http://localhost:${port}`;
@@ -54,12 +55,18 @@ if (await isPortInUse(port)) {
   process.exit(0);
 }
 
+// Keep dev artifacts separate from production/typecheck artifacts to avoid
+// .next manifest/vendor-chunk corruption when dev, build, and typegen run in
+// the same repo lifecycle.
+fs.rmSync(devDistDir, { recursive: true, force: true });
+
 const child = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev'], {
   cwd: webDir,
   stdio: 'inherit',
   env: {
     ...process.env,
     PORT: String(port),
+    DIOTEST_NEXT_DIST_DIR: '.next-dev',
   },
 });
 

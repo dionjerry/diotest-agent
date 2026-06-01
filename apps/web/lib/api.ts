@@ -1,6 +1,8 @@
 import { env } from '@/lib/env';
 import type { OnboardingProgress } from '@/lib/onboarding-state';
+import type { AnalyzeResult } from '@diotest/domain/analysis/types';
 import type { AgentAction, Task } from '@diotest/domain/platform/types';
+import type { UiRecorderGenerationResult, UiRecorderGenerationOptions, UiRecorderSession } from '@diotest/domain/recorder/types';
 
 export class AppApiError extends Error {
   statusCode?: number;
@@ -168,6 +170,94 @@ export type ActionsResponse = {
   tasks: Task[];
 };
 
+export type RuntimeAnalysisResponse = AnalyzeResult;
+
+export type RuntimeRecorderResponse =
+  | { ok: true; result: UiRecorderGenerationResult }
+  | { ok: false; error: string; code?: string };
+
+export type RuntimeBrowserChecksResponse = {
+  summary?: string;
+  details?: Record<string, unknown>;
+};
+
+export type RuntimeAgentRecommendationsResponse = {
+  summary: string;
+  recommendations: Array<{
+    title: string;
+    body: string;
+    buttonLabel: string;
+    actionType: 'analyze_pr' | 'generate_tests' | 'generate_from_recorder' | 'run_browser_checks' | 'sync_jira' | 'sync_trello' | 'export_sheets';
+    target: 'pr' | 'recorder_session' | 'test_case' | 'run' | 'project';
+    priority: 'high' | 'medium' | 'low';
+    tone: 'success' | 'warn' | 'neutral' | 'danger';
+    readOnly: boolean;
+    approvalRequired: boolean;
+    rationale: string;
+    input: Record<string, unknown>;
+  }>;
+};
+
+export type RuntimeAgentRunResponse = {
+  summary: string;
+  plan: string[];
+  investigationAreas: string[];
+  evidence: Array<{
+    tool: string;
+    takeaway: string;
+  }>;
+  proposedActions: Array<{
+    title: string;
+    description: string;
+    actionType: 'analyze_pr' | 'generate_tests' | 'generate_from_recorder' | 'run_browser_checks' | 'sync_jira' | 'sync_trello' | 'export_sheets';
+    target: 'pr' | 'recorder_session' | 'test_case' | 'run' | 'project';
+    readOnly: boolean;
+    approvalRequired: boolean;
+    input: Record<string, unknown>;
+  }>;
+};
+
+export type RuntimeHealthResponse = {
+  ok: true;
+  scope: 'project' | 'organization' | 'system';
+  provider: 'openai' | 'openrouter';
+  model: string;
+  validation: {
+    status: 'ok';
+    providerEcho: 'openai' | 'openrouter';
+    modelEcho: string;
+    scopeEcho: 'project' | 'organization' | 'system';
+    note: string;
+  };
+};
+
+export type AgentThreadSummary = {
+  id: string;
+  projectId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessagePreview: string;
+};
+
+export type AgentThreadMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+export type AgentThreadDetail = {
+  id: string;
+  projectId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessagePreview: string;
+  messages: AgentThreadMessage[];
+};
+
 export function getBootstrap(userId: string) {
   return request<BootstrapResponse>(`/bootstrap?userId=${userId}`, undefined, {
     revalidate: 15,
@@ -286,15 +376,24 @@ export function saveSystemSetting(payload: {
   });
 }
 
-export function getSettings(payload: { organizationId?: string; projectId?: string }) {
+export function getSettings(
+  payload: { organizationId?: string; projectId?: string },
+  options?: { fresh?: boolean },
+) {
   const params = new URLSearchParams();
   if (payload.organizationId) params.set('organizationId', payload.organizationId);
   if (payload.projectId) params.set('projectId', payload.projectId);
 
-  return request<SettingsResponse>(`/settings?${params.toString()}`, undefined, {
-    revalidate: 30,
-    tags: [settingsTag(payload.organizationId, payload.projectId)],
-  });
+  return request<SettingsResponse>(
+    `/settings?${params.toString()}`,
+    undefined,
+    options?.fresh
+      ? { cacheMode: 'no-store' }
+      : {
+          revalidate: 30,
+          tags: [settingsTag(payload.organizationId, payload.projectId)],
+        },
+  );
 }
 
 export function getSettingsExport(payload: { organizationId?: string; projectId?: string }) {
@@ -393,6 +492,114 @@ export function approveAgentAction(actionId: string) {
   return request<{ action: AgentAction }>('/actions/approve', {
     method: 'POST',
     body: JSON.stringify({ actionId }),
+  });
+}
+
+export function runHostedAnalysis(payload: {
+  organizationId: string;
+  projectId: string;
+  includeDeepScan?: boolean;
+}) {
+  return request<RuntimeAnalysisResponse>('/runtime/analysis', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function runHostedRecorderGeneration(payload: {
+  organizationId: string;
+  projectId: string;
+  sessionId?: string;
+  session?: UiRecorderSession;
+  options?: UiRecorderGenerationOptions;
+}) {
+  return request<RuntimeRecorderResponse>('/runtime/recorder/generate', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function runHostedBrowserChecks(payload: {
+  organizationId: string;
+  projectId: string;
+  input?: Record<string, unknown>;
+}) {
+  return request<RuntimeBrowserChecksResponse>('/runtime/browser-checks', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getHostedAgentRecommendations(payload: {
+  organizationId: string;
+  projectId: string;
+  focus?: string;
+}) {
+  return request<RuntimeAgentRecommendationsResponse>('/runtime/agents/recommendations', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function runHostedAgentExecution(payload: {
+  organizationId: string;
+  projectId: string;
+  goal: string;
+  focus?: string;
+  allowedActionTypes?: Array<'analyze_pr' | 'generate_tests' | 'generate_from_recorder' | 'run_browser_checks' | 'sync_jira' | 'sync_trello' | 'export_sheets'>;
+}) {
+  return request<RuntimeAgentRunResponse>('/runtime/agents/run', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function testHostedRuntime(payload: {
+  organizationId?: string;
+  projectId?: string;
+  preferredProvider?: 'openai' | 'openrouter';
+  model?: string;
+  openaiApiKey?: string;
+  openrouterApiKey?: string;
+}) {
+  return request<RuntimeHealthResponse>('/runtime/health', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getAgentThreads(projectId: string) {
+  return request<{ threads: AgentThreadSummary[] }>(`/agent-threads?projectId=${projectId}`);
+}
+
+export function getAgentThread(threadId: string) {
+  return request<{ thread: AgentThreadDetail }>(`/agent-threads/${threadId}`);
+}
+
+export function createAgentThread(payload: {
+  organizationId: string;
+  projectId: string;
+  content: string;
+}) {
+  return request<{ thread: AgentThreadDetail }>('/agent-threads', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function sendAgentThreadMessage(payload: {
+  threadId: string;
+  organizationId: string;
+  projectId: string;
+  content: string;
+}) {
+  return request<{ thread: AgentThreadDetail }>(`/agent-threads/${payload.threadId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({
+      organizationId: payload.organizationId,
+      projectId: payload.projectId,
+      content: payload.content,
+    }),
   });
 }
 
